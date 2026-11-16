@@ -1,0 +1,54 @@
+name: Build and validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Install AU and VST3 for validation
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3
+          cp -R "build/PuppyChow_artefacts/Release/AU/Puppy Chow.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "build/PuppyChow_artefacts/Release/VST3/Puppy Chow.vst3" ~/Library/Audio/Plug-Ins/VST3/
+          killall -9 AudioComponentRegistrar || true
+
+      - name: auval
+        run: auval -strict -v aufx Pchw Jdrg
+
+      - name: pluginval
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --skip-gui-tests \
+            --validate ~/Library/Audio/Plug-Ins/VST3/"Puppy Chow.vst3"
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --skip-gui-tests \
+            --validate ~/Library/Audio/Plug-Ins/Components/"Puppy Chow.component"
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: PuppyChow-macOS
+          path: |
+            build/PuppyChow_artefacts/Release/AU/Puppy Chow.component
+            build/PuppyChow_artefacts/Release/VST3/Puppy Chow.vst3
+            build/PuppyChow_artefacts/Release/Standalone/Puppy Chow.app
