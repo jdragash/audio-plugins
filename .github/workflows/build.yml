@@ -25,6 +25,9 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      - name: Engine tests (pitch, chords, attack time, CPU)
+        run: ctest --test-dir build --output-on-failure
+
       - name: Install AU and VST3 for validation
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3

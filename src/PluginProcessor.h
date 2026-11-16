@@ -3,9 +3,11 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "dsp/OctaveEngine.h"
+
 // Puppy Chow: a polyphonic octave pedal.
-// Milestone 1: clean pass-through with a single Dry level control,
-// so we can confirm the plugin loads and validates before adding DSP.
+// The guitar passes straight through (Dry) and the octave engine adds up to
+// four extra voices: one and two octaves down, one and two octaves up.
 class PuppyChowProcessor final : public juce::AudioProcessor
 {
 public:
@@ -42,8 +44,14 @@ public:
 
 private:
     juce::AudioProcessorValueTreeState parameters;
-    std::atomic<float>* dryLevelDb = nullptr;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> dryGain;
+
+    // Index 0 is Dry, then the four engine voices in engine order.
+    static constexpr int numLevels = 1 + puppychow::OctaveEngine::numVoices;
+    std::array<std::atomic<float>*, numLevels> levelDb {};
+    std::array<juce::SmoothedValue<float>, numLevels> gains;
+
+    puppychow::OctaveEngine engine;
+    float wetHighpassState = 0.0f, wetHighpassCoeff = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PuppyChowProcessor)
 };

@@ -54,6 +54,11 @@ target_compile_definitions(PuppyChow PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
+if(NOT MSVC)
+    # Lets the compiler process several filter bands per instruction.
+    target_compile_options(PuppyChow PRIVATE -fno-math-errno)
+endif()
+
 target_link_libraries(PuppyChow
     PRIVATE
         juce::juce_audio_utils
@@ -62,3 +67,13 @@ target_link_libraries(PuppyChow
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Offline engine tests. Plain C++, no JUCE, so they run anywhere:
+#   cmake --build build --target PuppyChowEngineTests && ctest --test-dir build
+enable_testing()
+add_executable(PuppyChowEngineTests tests/engine_tests.cpp)
+target_include_directories(PuppyChowEngineTests PRIVATE src)
+if(NOT MSVC)
+    target_compile_options(PuppyChowEngineTests PRIVATE -O3 -fno-math-errno)
+endif()
+add_test(NAME engine COMMAND PuppyChowEngineTests)

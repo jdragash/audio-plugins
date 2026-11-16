@@ -1,9 +1,25 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-namespace ParamIDs
+namespace
 {
-    static const juce::ParameterID dry { "dry", 1 };
+    constexpr float offDb = -60.0f; // bottom of every level knob means "off"
+
+    struct LevelParam { const char* id; const char* name; float defaultDb; };
+
+    // Order matters: Dry first, then the voices in OctaveEngine::Voice order.
+    const LevelParam levelParams[] = {
+        { "dry",   "Dry",           0.0f },
+        { "down2", "-2 Octaves",  offDb },
+        { "down1", "-1 Octave",   -6.0f },
+        { "up1",   "+1 Octave",   -6.0f },
+        { "up2",   "+2 Octaves",  offDb },
+    };
+
+    float gainFromDb (float dbValue) noexcept
+    {
+        return dbValue <= offDb + 0.05f ? 0.0f : juce::Decibels::decibelsToGain (dbValue);
+    }
 }
 
 PuppyChowProcessor::PuppyChowProcessor()
@@ -12,26 +28,41 @@ PuppyChowProcessor::PuppyChowProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "PuppyChow", createParameterLayout())
 {
-    dryLevelDb = parameters.getRawParameterValue (ParamIDs::dry.getParamID());
+    for (size_t i = 0; i < levelDb.size(); ++i)
+        levelDb[i] = parameters.getRawParameterValue (levelParams[i].id);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
-    layout.add (std::make_unique<juce::AudioParameterFloat> (
-        ParamIDs::dry, "Dry",
-        juce::NormalisableRange<float> (-60.0f, 6.0f, 0.1f, 2.0f),
-        0.0f,
-        juce::AudioParameterFloatAttributes().withLabel ("dB")));
+    for (const auto& p : levelParams)
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { p.id, 1 }, p.name,
+            juce::NormalisableRange<float> (offDb, 6.0f, 0.1f, 2.0f),
+            p.defaultDb,
+            juce::AudioParameterFloatAttributes()
+                .withLabel ("dB")
+                .withStringFromValueFunction ([] (float v, int) { return v <= offDb + 0.05f ? juce::String ("Off") : juce::String (v, 1); })
+                .withValueFromStringFunction ([] (const juce::String& t) { return t.trim().equalsIgnoreCase ("off") ? offDb : t.getFloatValue(); })));
 
     return layout;
 }
 
 void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
 {
-    dryGain.reset (sampleRate, 0.02); // 20 ms smoothing avoids zipper noise
-    dryGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (dryLevelDb->load(), -60.0f));
+    engine.prepare (sampleRate);
+
+    for (size_t i = 0; i < gains.size(); ++i)
+    {
+        gains[i].reset (sampleRate, 0.02); // 20 ms smoothing avoids zipper noise
+        gains[i].setCurrentAndTargetValue (gainFromDb (levelDb[i]->load()));
+    }
+
+    // Gentle 20 Hz high-pass on the octaves so two octaves below a low note
+    // can't push speakers around with inaudible rumble.
+    wetHighpassCoeff = (float) std::exp (-juce::MathConstants<double>::twoPi * 20.0 / sampleRate);
+    wetHighpassState = 0.0f;
 }
 
 bool PuppyChowProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -64,19 +95,50 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             buffer.clear (ch, 0, numSamples);
     }
 
-    dryGain.setTargetValue (juce::Decibels::decibelsToGain (dryLevelDb->load(), -60.0f));
+    for (size_t i = 0; i < gains.size(); ++i)
+        gains[i].setTargetValue (gainFromDb (levelDb[i]->load()));
 
-    if (! dryGain.isSmoothing())
-    {
-        buffer.applyGain (dryGain.getTargetValue());
-        return;
-    }
+    // Work in small fixed-size chunks so no memory is ever allocated here.
+    constexpr int chunk = 64;
+    constexpr int numVoices = puppychow::OctaveEngine::numVoices;
+    float mono[chunk];
+    float voices[numVoices][chunk];
+    float* voicePtrs[numVoices] = { voices[0], voices[1], voices[2], voices[3] };
 
-    for (int i = 0; i < numSamples; ++i)
+    for (int start = 0; start < numSamples; start += chunk)
     {
-        const auto g = dryGain.getNextValue();
-        for (int ch = 0; ch < numOut; ++ch)
-            buffer.getWritePointer (ch)[i] *= g;
+        const int n = juce::jmin (chunk, numSamples - start);
+
+        // The engine listens to a mono mix of the input.
+        const float inScale = numIn > 1 ? 1.0f / (float) numIn : 1.0f;
+        for (int i = 0; i < n; ++i)
+            mono[i] = 0.0f;
+        for (int ch = 0; ch < juce::jmax (1, juce::jmin (numIn, numOut)); ++ch)
+        {
+            const float* src = buffer.getReadPointer (ch, start);
+            for (int i = 0; i < n; ++i)
+                mono[i] += src[i] * inScale;
+        }
+
+        engine.process (mono, voicePtrs, n);
+
+        for (int i = 0; i < n; ++i)
+        {
+            float wet = 0.0f;
+            for (int v = 0; v < numVoices; ++v)
+                wet += voices[v][i] * gains[(size_t) v + 1].getNextValue();
+
+            // One-pole high-pass: subtract a slow-moving average.
+            wetHighpassState = wet + wetHighpassCoeff * (wetHighpassState - wet);
+            wet -= wetHighpassState;
+
+            const float dry = gains[0].getNextValue();
+            for (int ch = 0; ch < numOut; ++ch)
+            {
+                float* dst = buffer.getWritePointer (ch, start);
+                dst[i] = dst[i] * dry + wet;
+            }
+        }
     }
 }
 
