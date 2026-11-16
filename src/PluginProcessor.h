@@ -3,11 +3,13 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "Channels.h"
 #include "dsp/OctaveEngine.h"
 
 // Puppy Chow: a polyphonic octave pedal.
-// The guitar passes straight through (Dry) and the octave engine adds up to
-// four extra voices: one and two octaves down, one and two octaves up.
+// The guitar passes straight through (Dry) and the engine adds up to seven
+// extra voices: octaves down and up, plus a fourth down, a fifth up and an
+// octave-plus-fifth up. Each channel has a level and an on/off switch.
 class PuppyChowProcessor final : public juce::AudioProcessor
 {
 public:
@@ -43,14 +45,30 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
+    float channelTargetGain (int channel) const noexcept;
+
     juce::AudioProcessorValueTreeState parameters;
 
-    // Index 0 is Dry, then the four engine voices in engine order.
-    static constexpr int numLevels = 1 + puppychow::OctaveEngine::numVoices;
-    std::array<std::atomic<float>*, numLevels> levelDb {};
-    std::array<juce::SmoothedValue<float>, numLevels> gains;
+    std::array<std::atomic<float>*, puppychow::numChannels> levelDb {};
+    std::array<std::atomic<float>*, puppychow::numChannels> channelOn {};
+    std::atomic<float>* detuneCents = nullptr;
+    std::atomic<float>* swellMs = nullptr;
+    std::atomic<float>* trackingMode = nullptr;
 
-    puppychow::OctaveEngine engine;
+    std::array<juce::SmoothedValue<float>, puppychow::numChannels> gains;
+    juce::SmoothedValue<float> detuneMix;
+
+    // One engine per tracking mode, so switching never rebuilds anything on
+    // the audio thread.
+    static constexpr int numTrackingModes = 3;
+    std::array<puppychow::OctaveEngine, numTrackingModes> engines;
+    int activeEngine = -1;
+
+    // Swell: fades the voices in after each new note is picked.
+    double sampleRateHz = 48000.0;
+    float fastEnv = 0.0f, slowEnv = 0.0f, swellRamp = 1.0f, swellGain = 1.0f;
+    int samplesSinceOnset = 0;
+
     float wetHighpassState = 0.0f, wetHighpassCoeff = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PuppyChowProcessor)

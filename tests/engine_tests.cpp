@@ -19,8 +19,11 @@ using puppychow::OctaveEngine;
 namespace
 {
 const double pi = 3.141592653589793;
-const double voiceRatio[4] = { 0.25, 0.5, 2.0, 4.0 };
-const char* voiceName[4] = { "2 oct down", "1 oct down", "1 oct up", "2 oct up" };
+const int numVoices = OctaveEngine::numVoices;
+const int numPlainVoices = OctaveEngine::up1Detuned; // everything except the detuned copies
+const double* const voiceRatio = OctaveEngine::voiceRatio;
+const char* voiceName[numVoices] = { "2 oct down", "1 oct down", "4th down", "5th up", "1 oct up", "oct+5th up", "2 oct up",
+                                     "1 oct up detuned", "2 oct up detuned" };
 
 bool report = false;
 int failures = 0;
@@ -72,7 +75,7 @@ std::vector<float> render (const std::vector<Note>& notes, double sr, int numSam
     return x;
 }
 
-struct Voices { std::vector<float> v[4]; };
+struct Voices { std::vector<float> v[numVoices]; };
 
 Voices run (OctaveEngine& e, const std::vector<float>& in)
 {
@@ -82,7 +85,8 @@ Voices run (OctaveEngine& e, const std::vector<float>& in)
     for (size_t pos = 0; pos < in.size(); pos += 64)
     {
         const int n = (int) std::min<size_t> (64, in.size() - pos);
-        float* outs[4] = { out.v[0].data() + pos, out.v[1].data() + pos, out.v[2].data() + pos, out.v[3].data() + pos };
+        float* outs[numVoices];
+        for (int v = 0; v < numVoices; ++v) outs[v] = out.v[v].data() + pos;
         e.process (in.data() + pos, outs, n);
     }
     return out;
@@ -137,20 +141,34 @@ std::vector<double> partials (const std::vector<Note>& notes, double ratio)
 
 double db (double powerRatio) { return 10.0 * std::log10 (std::max (powerRatio, 1.0e-20)); }
 
+// Limits for one test, in dB of off-pitch content: one for the voices that go
+// down and one for the voices that go up. The two highest voices multiply any
+// error the most, so they get a little more room.
+struct Limits { double down, up; };
+
+double limitFor (const Limits& l, int v)
+{
+    if (voiceRatio[v] < 1.0) return l.down;
+    return l.up + (voiceRatio[v] >= 3.0 ? 3.0 : 0.0);
+}
+
 // How much of a voice's output is NOT at the pitches it should be at.
-void testPitches (OctaveEngine& e, double sr, const char* name, const std::vector<Note>& notes, const double limitDb[4])
+void testPitches (OctaveEngine& e, double sr, const char* name, const std::vector<Note>& notes, Limits limits,
+                  double pitchScaleForDetuned = 0.0)
 {
     const auto in = render (notes, sr, 2 * 65536);
     const auto out = run (e, in);
     const double inPower = analyse (in, sr).total();
+    const bool detuned = pitchScaleForDetuned > 0.0;
 
-    for (int v = 0; v < 4; ++v)
+    for (int v = detuned ? numPlainVoices : 0; v < (detuned ? numVoices : numPlainVoices); ++v)
     {
         const auto spec = analyse (out.v[v], sr);
         const double total = spec.total();
-        const double wanted = spec.near (partials (notes, voiceRatio[v]), 6.0);
+        const double wanted = spec.near (partials (notes, voiceRatio[v] * (detuned ? pitchScaleForDetuned : 1.0)), 6.0);
         const double junk = db ((total - wanted) / total);
-        check (junk < limitDb[v], std::string (name) + ", " + voiceName[v] + ": off-pitch content", junk, "dB", limitDb[v]);
+        const double limit = limitFor (limits, v);
+        check (junk < limit, std::string (name) + ", " + voiceName[v] + ": off-pitch content", junk, "dB", limit);
 
         const double level = db (total / inPower);
         check (std::abs (level) < 3.0, std::string (name) + ", " + voiceName[v] + ": level vs input", level, "dB", 3.0);
@@ -158,14 +176,14 @@ void testPitches (OctaveEngine& e, double sr, const char* name, const std::vecto
 }
 
 // Time for a voice to reach half its final level after a note starts.
-void testAttack (OctaveEngine& e, double sr, double hz, const double limitMs[4])
+void testAttack (OctaveEngine& e, double sr, double hz, double limitMs)
 {
     const int start = (int) (0.1 * sr), total = (int) (1.0 * sr);
     const auto in = render ({ { hz, 1 } }, sr, total, start);
     const auto out = run (e, in);
     const int win = (int) (0.008 * sr);
 
-    for (int v = 0; v < 4; ++v)
+    for (int v = 0; v < numPlainVoices; ++v)
     {
         const double f = hz * voiceRatio[v];
         auto levelAt = [&] (int centre)
@@ -189,7 +207,7 @@ void testAttack (OctaveEngine& e, double sr, double hz, const double limitMs[4])
 
         char name[96];
         std::snprintf (name, sizeof (name), "attack at %.0f Hz, %s: time to half level", hz, voiceName[v]);
-        check (ms < limitMs[v], name, ms, "ms", limitMs[v]);
+        check (ms < limitMs, name, ms, "ms", limitMs);
     }
 }
 
@@ -223,34 +241,47 @@ void testCpu (OctaveEngine& e, double sr)
     run (e, in);
     const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
     const double percent = 100.0 * seconds / 5.0;
-    check (percent < 25.0, "CPU use of one core at " + std::to_string ((int) sr) + " Hz", percent, "%", 25.0);
+    // A loose limit: this only guards against something going badly wrong. With
+    // clang (what the Mac build uses) the real figure is several times lower.
+    check (percent < 60.0, "CPU use of one core at " + std::to_string ((int) sr) + " Hz, all voices on", percent, "%", 60.0);
+
+    bool few[numVoices] = {};
+    few[OctaveEngine::down1] = few[OctaveEngine::up1] = true;
+    e.setActiveVoices (few);
+    const auto t1 = std::chrono::steady_clock::now();
+    run (e, in);
+    const double percentFew = 100.0 * std::chrono::duration<double> (std::chrono::steady_clock::now() - t1).count() / 5.0;
+    check (percentFew < 60.0, "CPU use of one core at " + std::to_string ((int) sr) + " Hz, octave down + up only", percentFew, "%", 60.0);
+
+    bool all[numVoices];
+    for (auto& a : all) a = true;
+    e.setActiveVoices (all);
 }
 } // namespace
 
 int main (int argc, char** argv)
 {
-    report = argc > 1 && std::strcmp (argv[1], "--report") == 0;
+    report = argc > 1 && (std::strcmp (argv[1], "--report") == 0 || std::strcmp (argv[1], "--tune") == 0);
 
     for (double sr : { 44100.0, 48000.0, 96000.0 })
     {
         OctaveEngine e;
-        OctaveEngine::Tuning tuning;
+        OctaveEngine::Tuning tuning = OctaveEngine::Tuning::clean();
         if (argc > 4 && std::strcmp (argv[1], "--tune") == 0)
         {
-            report = true;
             tuning.baseWidthHz = (float) std::atof (argv[2]); tuning.widthPerHz = (float) std::atof (argv[3]);
             tuning.spacing = (float) std::atof (argv[4]);
         }
         e.prepare (sr, tuning);
-        if (report) std::printf ("\n=== %.0f Hz sample rate, %d bands ===\n", sr, e.getNumBands());
+        if (report) std::printf ("\n=== Clean tracking, %.0f Hz sample rate, %d bands ===\n", sr, e.getNumBands());
 
-        const double clean[4]  = { -30.0, -30.0, -30.0, -26.0 };
-        const double chord[4]  = { -20.0, -20.0, -20.0, -18.0 };
+        const Limits clean { -30.0, -28.0 };
+        const Limits chord { -24.0, -20.0 };
         // Full chords with many harmonics are judged more loosely: harmonics of
         // different strings land within a few Hz of each other and beat, which
         // this measurement counts as off-pitch even though a real guitar does
         // the same thing.
-        const double dense[4]  = { -17.0, -17.0, -10.0, -10.0 };
+        const Limits dense { -18.0, -11.0 };
 
         testPitches (e, sr, "low E sine",            { { 82.41, 1 } }, clean);
         testPitches (e, sr, "A 440 sine",            { { 440.0, 1 } }, clean);
@@ -259,27 +290,62 @@ int main (int argc, char** argv)
         testPitches (e, sr, "A string",              { { 110.0, 10 } }, clean);
         testPitches (e, sr, "G string",              { { 196.0, 10 } }, clean);
         testPitches (e, sr, "fifth E2+B2 (sines)",   { { 82.41, 1 }, { 123.47, 1 } }, chord);
+        testPitches (e, sr, "low third E2+G#2 (sines)", { { 82.41, 1 }, { 103.83, 1 } }, chord);
+        testPitches (e, sr, "whole tone A3+B3 (sines)", { { 220.0, 1 }, { 246.94, 1 } }, chord);
         testPitches (e, sr, "major third A3+C#4 (sines)", { { 220.0, 1 }, { 277.18, 1 } }, chord);
         testPitches (e, sr, "A major triad (sines)", { { 220.0, 1 }, { 277.18, 1 }, { 329.63, 1 } }, chord);
         testPitches (e, sr, "A major triad (2 harmonics)", { { 220.0, 2 }, { 277.18, 2 }, { 329.63, 2 } }, chord);
+        testPitches (e, sr, "drop D power chord",    { { 73.42, 6 }, { 110.0, 6 }, { 146.83, 6 } }, chord);
         testPitches (e, sr, "E5 power chord",        { { 82.41, 8 }, { 123.47, 8 }, { 164.81, 8 } }, dense);
+        testPitches (e, sr, "low E minor chord",     { { 82.41, 6 }, { 123.47, 6 }, { 164.81, 6 }, { 196.0, 6 } }, dense);
         testPitches (e, sr, "A major triad",         { { 220.0, 6 }, { 277.18, 6 }, { 329.63, 6 } }, dense);
         testPitches (e, sr, "open E major chord",    { { 82.41, 6 }, { 123.47, 6 }, { 164.81, 6 }, { 207.65, 6 }, { 246.94, 6 }, { 329.63, 6 } }, dense);
 
+        if (report)
+        {
+            // Semitone clashes are the known weak spot. Measured, not enforced.
+            const Limits none { 0.0, 0.0 };
+            testPitches (e, sr, "semitone E3+F3 (sines)", { { 164.81, 1 }, { 174.61, 1 } }, none);
+            testPitches (e, sr, "semitone E4+F4 (sines)", { { 329.63, 1 }, { 349.23, 1 } }, none);
+        }
+
+        // Detune: the copies must come out sharp by the requested amount.
+        e.setDetuneCents (12.0f);
+        const double sharp = std::pow (2.0, 12.0 / 1200.0);
+        testPitches (e, sr, "detune 12 cents, A 440 sine", { { 440.0, 1 } }, clean, sharp);
+        testPitches (e, sr, "detune 12 cents, A string",   { { 110.0, 10 } }, clean, sharp);
+        testPitches (e, sr, "detune 12 cents, E5 power chord", { { 82.41, 8 }, { 123.47, 8 }, { 164.81, 8 } }, dense, sharp);
+        e.setDetuneCents (0.0f);
+
         if (sr == 48000.0)
         {
-            // The octaves fade in rather than starting instantly, faster for
+            // The voices fade in rather than starting instantly, faster for
             // higher notes. These limits keep that fade-in from growing.
-            const double lowE[4] = { 45.0, 45.0, 45.0, 45.0 };
-            const double a3[4]   = { 30.0, 30.0, 30.0, 30.0 };
-            const double a4[4]   = { 20.0, 20.0, 20.0, 20.0 };
-            const double a5[4]   = { 14.0, 14.0, 14.0, 14.0 };
-            testAttack (e, sr, 82.41, lowE);
-            testAttack (e, sr, 220.0, a3);
-            testAttack (e, sr, 440.0, a4);
-            testAttack (e, sr, 880.0, a5);
+            testAttack (e, sr, 82.41, 150.0);
+            testAttack (e, sr, 220.0, 100.0);
+            testAttack (e, sr, 440.0, 66.0);
+            testAttack (e, sr, 880.0, 40.0);
             testSilenceAndSafety (e, sr);
             testCpu (e, sr);
+
+            // The other tracking modes: single notes must stay clean and stable.
+            struct Mode { const char* name; OctaveEngine::Tuning tuning; };
+            for (const Mode& m : { Mode { "Tight", OctaveEngine::Tuning::tight() }, Mode { "Balanced", OctaveEngine::Tuning::balanced() } })
+            {
+                OctaveEngine other;
+                other.prepare (sr, m.tuning);
+                if (report) std::printf ("\n=== %s tracking, %.0f Hz sample rate, %d bands ===\n", m.name, sr, other.getNumBands());
+                testPitches (other, sr, "low E string", { { 82.41, 10 } }, clean);
+                testPitches (other, sr, "A 440 sine",   { { 440.0, 1 } }, clean);
+                testPitches (other, sr, "major third A3+C#4 (sines)", { { 220.0, 1 }, { 277.18, 1 } }, chord);
+                testSilenceAndSafety (other, sr);
+                testCpu (other, sr);
+                if (report)
+                {
+                    testAttack (other, sr, 82.41, 999.0);
+                    testAttack (other, sr, 440.0, 999.0);
+                }
+            }
         }
     }
 

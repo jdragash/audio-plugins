@@ -5,22 +5,33 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Milestone 2: the octave engine.** Five knobs: Dry, one and two octaves down, one and two
-octaves up. Turn a knob fully down to switch that voice off. The interface is a placeholder.
+**Milestone 3: more voices and controls.** The interface is still a placeholder.
+
+![Placeholder interface](docs/interface.png)
+
+- **Eight channels**, each with an on/off switch and a level slider: two octaves down, one
+  octave down, a fourth down, Dry, a fifth up, one octave up, an octave plus a fifth up, and
+  two octaves up.
+- **Detune** adds slightly sharp copies of the two octave-up voices for a 12-string shimmer.
+- **Swell** fades the voices in after each picked note, like a volume swell or a bowed string.
+- **Tracking** trades speed for cleanliness. *Tight* responds fastest, *Clean* keeps low and
+  close-voiced chords clearest but lets the voices bloom in more slowly, and *Balanced* sits
+  between them.
 
 Still to come: a Tone filter, and a proper interface.
 
 Design goals:
-- Feels like a pedal, not a delay. Your dry signal is never delayed. The octave voices fade in
-  over a few milliseconds for high notes and a few tens of milliseconds for the lowest notes.
-- Tracks chords cleanly, with no pitch detection.
+- Feels like a pedal, not a delay. Your dry signal is never delayed. The voices fade in over
+  a few tens of milliseconds, faster for high notes and in Tight mode.
+- Tracks chords cleanly, with no pitch detection. Notes a semitone apart are the known weak
+  spot.
 - Light on CPU, and safe to run on the real-time audio thread.
 
 ## How it works
 
-The guitar signal is split into about 140 very narrow frequency bands, so each band holds
-roughly one pure tone from one string. Each tone is then moved up or down by octaves on its
-own and the results are added back together. Because nothing ever has to decide "which note
+The guitar signal is split into 140 to 220 very narrow frequency bands (depending on the
+Tracking mode), so each band holds roughly one pure tone from one string. Each tone is then
+moved to its new pitch on its own and the results are added back together. Because nothing ever has to decide "which note
 is this?", chords work as well as single notes. The engine lives in `src/dsp/OctaveEngine.h`
 and has no dependencies. `tests/engine_tests.cpp` checks pitch accuracy, chord cleanliness,
 attack time and CPU use.

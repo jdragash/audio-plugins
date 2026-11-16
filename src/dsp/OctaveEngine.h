@@ -4,10 +4,10 @@
 //
 // No pitch detection. The input is split by a bank of narrow complex band-pass
 // filters. Each band then holds (roughly) one sine wave, described by an
-// amplitude and a rotating phase. Doubling that phase gives the octave up,
-// halving it gives the octave down, and the amplitude is left alone, so the
-// octaves follow the playing dynamics exactly. Because each band is shifted
-// independently, chords stay chords.
+// amplitude and a rotating phase. Multiplying that phase gives a new pitch:
+// x2 is an octave up, x1/2 an octave down, x3/2 a fifth up, and so on. The
+// amplitude is left alone, so the voices follow the playing dynamics exactly.
+// Because each band is shifted independently, chords stay chords.
 //
 // Plain C++ with no JUCE dependency so it can be unit tested anywhere.
 // Real-time safe: no allocation, locks or system calls after prepare().
@@ -17,28 +17,57 @@
 #include <cmath>
 #include <cstddef>
 
+#if defined (_MSC_VER)
+ #define PUPPYCHOW_RESTRICT __restrict
+#else
+ #define PUPPYCHOW_RESTRICT __restrict__
+#endif
+
 namespace puppychow
 {
 
 class OctaveEngine
 {
 public:
-    static constexpr int maxBands = 160;
+    static constexpr int maxBands = 240;
     static constexpr int numStages = 4;
-    static constexpr int sharpenReach = 3;
+    static constexpr int pad = 3;            // spare slots either side of per-band arrays
+    static constexpr int sharpenReach = pad;
 
-    enum Voice { down2 = 0, down1 = 1, up1 = 2, up2 = 3, numVoices = 4 };
+    // Outputs of process(), lowest pitch first. The last two are slightly
+    // sharp copies of the octave-up voices, used for the Detune control.
+    enum Voice
+    {
+        down2 = 0,      // two octaves down   (phase x 1/4)
+        down1,          // one octave down    (phase x 1/2)
+        fourthDown,     // a fourth down      (phase x 3/4)
+        fifthUp,        // a fifth up         (phase x 3/2)
+        up1,            // one octave up      (phase x 2)
+        octFifthUp,     // octave + fifth up  (phase x 3)
+        up2,            // two octaves up     (phase x 4)
+        up1Detuned,
+        up2Detuned,
+        numVoices
+    };
 
+    static constexpr double voiceRatio[numVoices] = { 0.25, 0.5, 0.75, 1.5, 2.0, 3.0, 4.0, 2.0, 4.0 };
+
+    // Narrower bands separate close notes better (cleaner low and dissonant
+    // chords) but take longer to respond (the voices fade in more slowly).
     struct Tuning
     {
         float lowestHz      = 40.0f;   // centre of the first band
         float highestHz     = 3200.0f; // no bands above this
-        float baseWidthHz   = 8.0f;    // band width at low frequencies
-        float widthPerHz    = 0.03f;   // extra width per Hz of centre frequency
+        float baseWidthHz   = 4.0f;    // band width at low frequencies
+        float widthPerHz    = 0.02f;   // extra width per Hz of centre frequency
         float spacing       = 0.6f;    // band spacing as a fraction of band width
+
+        static Tuning tight()      { Tuning t; t.baseWidthHz = 8.0f; t.widthPerHz = 0.03f;  return t; }
+        static Tuning balanced()   { Tuning t; t.baseWidthHz = 6.0f; t.widthPerHz = 0.025f; return t; }
+        static Tuning clean()      { Tuning t; t.baseWidthHz = 4.0f; t.widthPerHz = 0.02f;  return t; }
     };
 
-    void prepare (double sampleRate) { prepare (sampleRate, Tuning{}); }
+    void prepare (double sampleRate) { prepare (sampleRate, Tuning::clean()); }
 
     void prepare (double sampleRate, const Tuning& t)
     {
@@ -60,9 +89,10 @@ public:
             const int k = numBands++;
             poleRe[k] = (float) (a * std::cos (w));
             poleIm[k] = (float) (a * std::sin (w));
+
             // Each filter delays the phase by an amount that depends on how far a
             // note sits from the band centre, so neighbouring bands would disagree
-            // about a note's phase and partly cancel once that phase is doubled.
+            // about a note's phase and partly cancel once that phase is scaled.
             // Giving every band a fixed phase offset (the running total of the
             // filter phase slope up to that band) lines neighbours up again.
             const double halfWidth = 0.5 * poleWidth;
@@ -71,18 +101,22 @@ public:
             prevCentre = f; prevHalfWidth = halfWidth;
 
             const double g = std::pow (1.0 - a, (double) numStages);     // unity for a sine at the band centre
-            inRe[k] = (float) (g * std::cos (-alignPhase));
-            inIm[k] = (float) (g * std::sin (-alignPhase));
+            inRe[k] = (float) (g * std::cos (alignPhase));
+            inIm[k] = (float) (g * std::sin (alignPhase));
             centreHz[k] = (float) f;
 
-            // Octaves up must stay below Nyquist or they fold back as noise.
-            up1Gain[k] = (2.0 * f < nyquistGuard) ? 1.0f : 0.0f;
-            up2Gain[k] = (4.0 * f < nyquistGuard) ? 1.0f : 0.0f;
+            // Voices that go up must stay below Nyquist or they fold back as noise.
+            gainFifth[k]    = (1.5 * f < nyquistGuard) ? 1.0f : 0.0f;
+            gainUp1[k]      = (2.0 * f < nyquistGuard) ? 1.0f : 0.0f;
+            gainOctFifth[k] = (3.0 * f < nyquistGuard) ? 1.0f : 0.0f;
+            gainUp2[k]      = (4.0 * f < nyquistGuard) ? 1.0f : 0.0f;
 
             f += t.spacing * width;
         }
 
         hilbert.prepare (sampleRate);
+        detuneCents = -1.0f;
+        setDetuneCents (0.0f);
         calibrate();
         reset();
     }
@@ -90,14 +124,62 @@ public:
     void reset()
     {
         hilbert.reset();
-        for (auto& m : magPadded) m = 0.0f;
+        cur = 0;
 
-        for (int k = 0; k < maxBands; ++k)
+        for (auto& voice : outs_)
+            for (auto& o : voice) o = 0.0f;
+
+        for (int st = 0; st < numStages; ++st)
+            for (int k = 0; k < maxBands; ++k)
+                sRe[st][k] = sIm[st][k] = 0.0f;
+
+        for (int k = 0; k < maxBands + 2 * pad; ++k)
         {
-            for (int st = 0; st < numStages; ++st) sRe[st][k] = sIm[st][k] = 0.0f;
-            flip1[k] = flip2[k] = 1.0f;
-            prevSin[k] = prevSinD1[k] = 1.0f;
+            magP[k] = 0.0f;
+            for (int b = 0; b < 2; ++b)
+            {
+                halfCos[b][k] = 1.0f; halfSin[b][k] = 0.0f;
+                quartCos[b][k] = 1.0f; quartSin[b][k] = 0.0f;
+                detCos[b][k] = 1.0f; detSin[b][k] = 0.0f;
+            }
         }
+    }
+
+    // How sharp the detuned copies of the octave-up voices are, in cents.
+    // Cheap enough to call once per audio block.
+    void setDetuneCents (float cents) noexcept
+    {
+        if (std::abs (cents - detuneCents) < 1.0e-4f)
+            return;
+        detuneCents = cents;
+
+        const double ratio = std::pow (2.0, (double) cents / 1200.0) - 1.0;
+        for (int k = 0; k < numBands; ++k)
+        {
+            // Extra rotation per sample that turns the octave-up pitch (twice
+            // the band's own pitch) sharp by the requested amount.
+            const double w = 6.283185307179586 * 2.0 * centreHz[k] * ratio / sr;
+            detRotCos[k] = (float) std::cos (w);
+            detRotSin[k] = (float) std::sin (w);
+        }
+    }
+
+    // Tell the engine which voices are actually being listened to, so it can
+    // skip the work for the rest. Skipped voices output silence.
+    void setActiveVoices (const bool active[numVoices]) noexcept
+    {
+        const bool half = active[down1] || active[fifthUp];
+        const bool quarter = active[down2] || active[fourthDown];
+        const bool detune = active[up1Detuned] || active[up2Detuned];
+
+        // Clear what a group left behind so a skipped voice is truly silent.
+        if (needHalf && ! (half || quarter)) { clearVoice (down1); clearVoice (fifthUp); }
+        if (needQuarter && ! quarter)        { clearVoice (down2); clearVoice (fourthDown); }
+        if (needDetune && ! detune)          { clearVoice (up1Detuned); clearVoice (up2Detuned); }
+
+        needHalf = half || quarter;   // the quarter phase is built from the half phase
+        needQuarter = quarter;
+        needDetune = detune;
     }
 
     int getNumBands() const noexcept { return numBands; }
@@ -117,7 +199,8 @@ public:
             // Run every band filter. Each band is four identical complex one-pole
             // resonators in a row (a "gammatone" shape: steep sides, but still
             // quick to respond). The loops are written band-by-band over plain
-            // arrays so the compiler can process several bands per instruction.
+            // arrays, without branches, so the compiler can process several
+            // bands per instruction. Keep them that way: it is a 4x speed-up.
             for (int k = 0; k < nb; ++k)
             {
                 bandRe[k] = xr * inRe[k] - xi * inIm[k];
@@ -138,9 +221,8 @@ public:
                 }
             }
 
-            // Amplitude of each band. (Stored with a few empty slots either side
-            // so the neighbour search below needs no edge cases.)
-            float* const mag = magPadded + sharpenReach;
+            // Amplitude of each band.
+            float* const mag = magP + pad;
             for (int k = 0; k < nb; ++k)
                 mag[k] = std::sqrt (bandRe[k] * bandRe[k] + bandIm[k] * bandIm[k]);
 
@@ -150,65 +232,162 @@ public:
             // part of what keeps chords clean.
             for (int k = 0; k < nb; ++k)
             {
-                float peak = magPadded[k];
+                float peak = magP[k];
                 for (int j = 1; j <= 2 * sharpenReach; ++j)
-                    peak = std::max (peak, magPadded[k + j]);
+                    peak = std::max (peak, magP[k + j]);
                 peakMag[k] = peak;
             }
 
+            // Unit phase (cos, sin) and sharpened amplitude of each band.
             for (int k = 0; k < nb; ++k)
             {
                 const float inv = 1.0f / (mag[k] + 1.0e-30f);
-                const float c = bandRe[k] * inv, s = bandIm[k] * inv;
-
+                cosA[k] = bandRe[k] * inv;
+                sinA[k] = bandIm[k] * inv;
                 float rel = mag[k] / (peakMag[k] + 1.0e-30f);
                 rel *= rel; rel *= rel;
-                const float amp = mag[k] * rel;
-
-                // Octave up: double the phase. Two up: double it again.
-                const float c2 = c * c - s * s;
-                outU1[k] = up1Gain[k] * amp * c2;
-                outU2[k] = up2Gain[k] * amp * (2.0f * c2 * c2 - 1.0f);
-
-                // Octave down: halve the phase. The half-angle formula only knows
-                // the phase within one turn, so flip the sign each time the input
-                // phase wraps around to keep the output continuous.
-                const float sgn = (s >= 0.0f) ? 1.0f : -1.0f;
-                const float wrap1 = (c < 0.0f ? 1.0f : 0.0f) * (sgn * prevSin[k] < 0.0f ? 1.0f : 0.0f);
-                const float f1 = flip1[k] * (1.0f - 2.0f * wrap1);
-                flip1[k] = f1;
-                prevSin[k] = sgn;
-                const float hc = f1 * std::sqrt (std::max (0.0f, 0.5f * (1.0f + c)));
-                const float hs = f1 * sgn * std::sqrt (std::max (0.0f, 0.5f * (1.0f - c)));
-                outD1[k] = amp * hc;
-
-                // Two octaves down: halve again.
-                const float sgnD = (hs >= 0.0f) ? 1.0f : -1.0f;
-                const float wrap2 = (hc < 0.0f ? 1.0f : 0.0f) * (sgnD * prevSinD1[k] < 0.0f ? 1.0f : 0.0f);
-                const float f2 = flip2[k] * (1.0f - 2.0f * wrap2);
-                flip2[k] = f2;
-                prevSinD1[k] = sgnD;
-                outD2[k] = amp * f2 * std::sqrt (std::max (0.0f, 0.5f * (1.0f + hc)));
+                ampA[k] = mag[k] * rel;
             }
 
-            float sumD2 = 0.0f, sumD1 = 0.0f, sumU1 = 0.0f, sumU2 = 0.0f;
+            // Whole-number multiples of the phase need no memory at all.
+            {
+                float* PUPPYCHOW_RESTRICT const oUp1 = outs_[up1];
+                float* PUPPYCHOW_RESTRICT const oUp2 = outs_[up2];
+                float* PUPPYCHOW_RESTRICT const oOctFifth = outs_[octFifthUp];
+
+                for (int k = 0; k < nb; ++k)
+                {
+                    const float c = cosA[k], s = sinA[k], amp = ampA[k];
+                    const float c2 = c * c - s * s, s2 = 2.0f * c * s;           // x2: octave up
+                    cos2A[k] = c2; sin2A[k] = s2;
+                    oUp1[k] = gainUp1[k] * amp * c2;
+                    oUp2[k] = gainUp2[k] * amp * (2.0f * c2 * c2 - 1.0f);         // x4: two octaves up
+                    oOctFifth[k] = gainOctFifth[k] * amp * (4.0f * c * c * c - 3.0f * c); // x3
+                }
+            }
+
+            // A note is spread over a few neighbouring bands (a "hill"). For the
+            // voices below that need memory, every band copies the choice made by
+            // its louder neighbour, so the whole hill agrees and adds up instead
+            // of cancelling. followA says which neighbour: -1 left, +1 right, 0 none.
             for (int k = 0; k < nb; ++k)
             {
-                sumD2 += outD2[k]; sumD1 += outD1[k];
-                sumU1 += outU1[k]; sumU2 += outU2[k];
+                const float left = mag[k - 1], right = mag[k + 1], self = mag[k];
+                const float goLeft = (left > self ? 1.0f : 0.0f) * (left >= right ? 1.0f : 0.0f);
+                const float goRight = (right > self ? 1.0f : 0.0f) * (1.0f - goLeft);
+                followL[k] = goLeft;
+                followR[k] = goRight;
             }
 
-            outs[down2][i] = sumD2 * norm[down2];
-            outs[down1][i] = sumD1 * norm[down1];
-            outs[up1][i]   = sumU1 * norm[up1];
-            outs[up2][i]   = sumU2 * norm[up2];
+            // Per-band state from the previous sample (read) and for this one (write).
+            const int prv = cur, nxt = 1 - cur;
+            cur = nxt;
+
+            // Octave down: halve the phase. Half a phase is only known up to a
+            // sign, so keep the sign that continues smoothly from the previous
+            // sample (or from the louder neighbour). A fifth up is three halves.
+            if (needHalf)
+            {
+                const float* PUPPYCHOW_RESTRICT const pC = halfCos[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pS = halfSin[prv] + pad;
+                float* PUPPYCHOW_RESTRICT const nC = halfCos[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nS = halfSin[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const oDown1 = outs_[down1];
+                float* PUPPYCHOW_RESTRICT const oFifth = outs_[fifthUp];
+
+                for (int k = 0; k < nb; ++k)
+                {
+                    const float c = cosA[k], s = sinA[k], amp = ampA[k];
+                    const float hc0 = std::sqrt (std::max (0.0f, 0.5f * (1.0f + c)));
+                    const float hs0 = (s >= 0.0f ? 1.0f : -1.0f) * std::sqrt (std::max (0.0f, 0.5f * (1.0f - c)));
+                    const float keep = 1.0f - followL[k] - followR[k];
+                    const float refC = followL[k] * pC[k - 1] + followR[k] * pC[k + 1] + keep * pC[k];
+                    const float refS = followL[k] * pS[k - 1] + followR[k] * pS[k + 1] + keep * pS[k];
+                    const float sign = (hc0 * refC + hs0 * refS) >= 0.0f ? 1.0f : -1.0f;
+                    const float hc = sign * hc0, hs = sign * hs0;
+                    nC[k] = hc; nS[k] = hs;
+                    oDown1[k] = amp * hc;
+                    oFifth[k] = gainFifth[k] * amp * (4.0f * hc * hc * hc - 3.0f * hc);
+                }
+            }
+
+            // Two octaves down: halve again, same idea. A fourth down is three quarters.
+            if (needQuarter)
+            {
+                const float* PUPPYCHOW_RESTRICT const hC = halfCos[nxt] + pad;
+                const float* PUPPYCHOW_RESTRICT const hS = halfSin[nxt] + pad;
+                const float* PUPPYCHOW_RESTRICT const pC = quartCos[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pS = quartSin[prv] + pad;
+                float* PUPPYCHOW_RESTRICT const nC = quartCos[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nS = quartSin[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const oDown2 = outs_[down2];
+                float* PUPPYCHOW_RESTRICT const oFourth = outs_[fourthDown];
+
+                for (int k = 0; k < nb; ++k)
+                {
+                    const float hc = hC[k], hs = hS[k], amp = ampA[k];
+                    const float qc0 = std::sqrt (std::max (0.0f, 0.5f * (1.0f + hc)));
+                    const float qs0 = (hs >= 0.0f ? 1.0f : -1.0f) * std::sqrt (std::max (0.0f, 0.5f * (1.0f - hc)));
+                    const float keep = 1.0f - followL[k] - followR[k];
+                    const float refC = followL[k] * pC[k - 1] + followR[k] * pC[k + 1] + keep * pC[k];
+                    const float refS = followL[k] * pS[k - 1] + followR[k] * pS[k + 1] + keep * pS[k];
+                    const float sign = (qc0 * refC + qs0 * refS) >= 0.0f ? 1.0f : -1.0f;
+                    const float qc = sign * qc0, qs = sign * qs0;
+                    nC[k] = qc; nS[k] = qs;
+                    oDown2[k] = amp * qc;
+                    oFourth[k] = amp * (4.0f * qc * qc * qc - 3.0f * qc);
+                }
+            }
+
+            // Detune: a slowly turning extra phase makes slightly sharp copies of
+            // the octave-up voices.
+            if (needDetune)
+            {
+                const float* PUPPYCHOW_RESTRICT const pC = detCos[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pS = detSin[prv] + pad;
+                float* PUPPYCHOW_RESTRICT const nC = detCos[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nS = detSin[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const oUp1Det = outs_[up1Detuned];
+                float* PUPPYCHOW_RESTRICT const oUp2Det = outs_[up2Detuned];
+
+                for (int k = 0; k < nb; ++k)
+                {
+                    const float keep = 1.0f - followL[k] - followR[k];
+                    const float baseC = followL[k] * pC[k - 1] + followR[k] * pC[k + 1] + keep * pC[k];
+                    const float baseS = followL[k] * pS[k - 1] + followR[k] * pS[k + 1] + keep * pS[k];
+                    float dc = baseC * detRotCos[k] - baseS * detRotSin[k];
+                    float ds = baseC * detRotSin[k] + baseS * detRotCos[k];
+                    const float fix = 1.5f - 0.5f * (dc * dc + ds * ds);         // keep its length at 1
+                    dc *= fix; ds *= fix;
+                    nC[k] = dc; nS[k] = ds;
+
+                    const float c2 = cos2A[k], s2 = sin2A[k], amp = ampA[k];
+                    const float c4 = 2.0f * c2 * c2 - 1.0f, s4 = 2.0f * c2 * s2;
+                    oUp1Det[k] = gainUp1[k] * amp * (c2 * dc - s2 * ds);
+                    oUp2Det[k] = gainUp2[k] * amp * (c4 * (dc * dc - ds * ds) - s4 * (2.0f * dc * ds));
+                }
+            }
+
+            // Add the bands up, eight at a time (slots past the last band are zero).
+            const int nb8 = (nb + 7) & ~7;
+            for (int v = 0; v < numVoices; ++v)
+            {
+                const float* const o = outs_[v];
+                float acc[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+                for (int k = 0; k < nb8; k += 8)
+                    for (int j = 0; j < 8; ++j)
+                        acc[j] += o[k + j];
+                outs[v][i] = (((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]))) * norm[(size_t) v];
+            }
         }
     }
 
-    void setNorm (Voice v, float n) noexcept { norm[(size_t) v] = n; }
-    float getNorm (Voice v) const noexcept { return norm[(size_t) v]; }
-
 private:
+    void clearVoice (int v) noexcept
+    {
+        for (auto& o : outs_[v]) o = 0.0f;
+    }
+
     // 90-degree phase splitter (two chains of all-pass filters, coefficients by
     // Olli Niemitalo). Removes the mirror-image negative frequencies with about
     // 45 dB rejection from 30 Hz up, and adds no meaningful delay.
@@ -276,19 +455,20 @@ private:
     Hilbert hilbert;
 
     // Neighbouring bands overlap, so a single sine lands in several of them.
-    // Measure how much they add up to for a mid-range note and scale every
-    // voice so its level matches the input level.
+    // Play a steady sine through the engine, measure each voice, and scale it
+    // so its level matches the input level.
     void calibrate()
     {
         for (auto& n : norm) n = 1.0f;
         reset();
 
-        // Play a steady 330 Hz sine through the engine and measure what comes out.
-        const int total = (int) (0.4 * sr), settle = total / 2;
+        const int total = (int) (0.8 * sr), settle = total / 2;
         float buf[numVoices][64];
-        float* outs[numVoices] = { buf[0], buf[1], buf[2], buf[3] };
+        float* outs[numVoices];
+        for (int v = 0; v < numVoices; ++v) outs[v] = buf[v];
         float in[64];
-        double peak[numVoices] = {};
+        double power[numVoices] = {};
+        int counted = 0;
 
         for (int n = 0; n < total; n += 64)
         {
@@ -296,26 +476,38 @@ private:
                 in[i] = (float) std::sin (6.283185307179586 * 330.0 * (n + i) / sr);
             process (in, outs, 64);
             if (n >= settle)
+            {
+                counted += 64;
                 for (int v = 0; v < numVoices; ++v)
                     for (int i = 0; i < 64; ++i)
-                        peak[v] = std::max (peak[v], (double) std::abs (buf[v][i]));
+                        power[v] += (double) buf[v][i] * (double) buf[v][i];
+            }
         }
 
+        // A sine of amplitude 1 has an average power of one half.
         for (int v = 0; v < numVoices; ++v)
-            norm[(size_t) v] = (float) (1.0 / std::max (peak[v], 1.0e-6));
+            norm[(size_t) v] = (float) (1.0 / std::max (std::sqrt (2.0 * power[v] / counted), 1.0e-6));
     }
 
     double sr = 48000.0;
     int numBands = 0;
-    std::array<float, numVoices> norm { 1.0f, 1.0f, 1.0f, 1.0f };
+    int cur = 0;
+    bool needHalf = true, needQuarter = true, needDetune = true;
+    float detuneCents = -1.0f;
+    std::array<float, numVoices> norm {};
 
     alignas (32) float poleRe[maxBands] {}, poleIm[maxBands] {}, inRe[maxBands] {}, inIm[maxBands] {};
-    alignas (32) float up1Gain[maxBands] {}, up2Gain[maxBands] {}, centreHz[maxBands] {};
+    alignas (32) float gainFifth[maxBands] {}, gainUp1[maxBands] {}, gainOctFifth[maxBands] {}, gainUp2[maxBands] {};
+    alignas (32) float centreHz[maxBands] {}, detRotCos[maxBands] {}, detRotSin[maxBands] {};
     alignas (32) float sRe[numStages][maxBands] {}, sIm[numStages][maxBands] {};
     alignas (32) float bandRe[maxBands] {}, bandIm[maxBands] {}, peakMag[maxBands] {};
-    alignas (32) float magPadded[maxBands + 2 * sharpenReach] {};
-    alignas (32) float outD2[maxBands] {}, outD1[maxBands] {}, outU1[maxBands] {}, outU2[maxBands] {};
-    alignas (32) float flip1[maxBands] {}, flip2[maxBands] {}, prevSin[maxBands] {}, prevSinD1[maxBands] {};
+    alignas (32) float cosA[maxBands] {}, sinA[maxBands] {}, ampA[maxBands] {}, cos2A[maxBands] {}, sin2A[maxBands] {};
+    alignas (32) float followL[maxBands] {}, followR[maxBands] {};
+    alignas (32) float magP[maxBands + 2 * pad] {};
+    alignas (32) float halfCos[2][maxBands + 2 * pad] {}, halfSin[2][maxBands + 2 * pad] {};
+    alignas (32) float quartCos[2][maxBands + 2 * pad] {}, quartSin[2][maxBands + 2 * pad] {};
+    alignas (32) float detCos[2][maxBands + 2 * pad] {}, detSin[2][maxBands + 2 * pad] {};
+    alignas (32) float outs_[numVoices][maxBands] {};
 };
 
 } // namespace puppychow

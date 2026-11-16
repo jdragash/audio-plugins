@@ -2,7 +2,9 @@
 
 #include "PluginProcessor.h"
 
-// Placeholder interface: one knob per voice. The real design comes later.
+// Placeholder interface: a mixer strip per channel (on/off switch and a
+// vertical level slider), plus Detune, Swell and the Tracking mode.
+// The real design comes later.
 class PuppyChowEditor final : public juce::AudioProcessorEditor
 {
 public:
@@ -13,15 +15,29 @@ public:
     void resized() override;
 
 private:
-    struct Knob
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+    struct Strip
     {
+        juce::Label title;
+        juce::ToggleButton onButton;
         juce::Slider slider;
-        juce::Label label;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+        std::unique_ptr<SliderAttachment> sliderAttachment;
+        std::unique_ptr<ButtonAttachment> buttonAttachment;
     };
 
-    static constexpr int numKnobs = 5;
-    std::array<Knob, numKnobs> knobs;
+    void setUpSlider (Strip&, const juce::String& title, const juce::String& paramId, const juce::String& suffix);
+
+    PuppyChowProcessor& processor;
+
+    std::array<Strip, puppychow::numChannels> channelStrips;
+    Strip detuneStrip, swellStrip;
+
+    juce::Label trackingLabel;
+    juce::ComboBox trackingBox;
+    std::unique_ptr<ComboBoxAttachment> trackingAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PuppyChowEditor)
 };
