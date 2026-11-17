@@ -23,6 +23,16 @@
  #define PUPPYCHOW_RESTRICT __restrict__
 #endif
 
+// Tells the compiler the per-band loops have no overlapping arrays, so it can
+// process several bands per instruction.
+#if defined (__clang__)
+ #define PUPPYCHOW_VECTORISE _Pragma ("clang loop vectorize(assume_safety)")
+#elif defined (__GNUC__)
+ #define PUPPYCHOW_VECTORISE _Pragma ("GCC ivdep")
+#else
+ #define PUPPYCHOW_VECTORISE
+#endif
+
 namespace puppychow
 {
 
@@ -33,6 +43,7 @@ public:
     static constexpr int numStages = 4;
     static constexpr int pad = 3;            // spare slots either side of per-band arrays
     static constexpr int sharpenReach = pad;
+    static constexpr double turnGlideSeconds = 0.003;   // how fast a band re-aligns with its neighbour
 
     // Outputs of process(), lowest pitch first. The last two are slightly
     // sharp copies of the octave-up voices, used for the Detune control.
@@ -115,6 +126,9 @@ public:
         }
 
         hilbert.prepare (sampleRate);
+        for (int v = 0; v < numVoices; ++v)
+            smoothing[(size_t) v].design (std::min (1.2 * (double) t.highestHz * voiceRatio[v], 0.45 * sampleRate), sampleRate);
+        turnGlide = (float) (1.0 - std::exp (-1.0 / (turnGlideSeconds * sampleRate)));
         detuneCents = -1.0f;
         setDetuneCents (0.0f);
         calibrate();
@@ -125,6 +139,7 @@ public:
     {
         hilbert.reset();
         cur = 0;
+        for (auto& lp : smoothing) lp.reset();
 
         for (auto& voice : outs_)
             for (auto& o : voice) o = 0.0f;
@@ -142,6 +157,19 @@ public:
                 quartCos[b][k] = 1.0f; quartSin[b][k] = 0.0f;
                 detCos[b][k] = 1.0f; detSin[b][k] = 0.0f;
             }
+        }
+
+        for (int k = 0; k < maxBands; ++k)
+        {
+            for (int b = 0; b < 2; ++b)
+            {
+                ownHalfCos[b][k] = 1.0f; ownHalfSin[b][k] = 0.0f;
+                ownQuartCos[b][k] = 1.0f; ownQuartSin[b][k] = 0.0f;
+                ownDetCos[b][k] = 1.0f; ownDetSin[b][k] = 0.0f;
+            }
+            turnHalf[k] = 1.0f;
+            turnQuartRe[k] = 1.0f; turnQuartIm[k] = 0.0f;
+            turnDetRe[k] = 1.0f; turnDetIm[k] = 0.0f;
         }
     }
 
@@ -283,88 +311,168 @@ public:
             const int prv = cur, nxt = 1 - cur;
             cur = nxt;
 
-            // Octave down: halve the phase. Half a phase is only known up to a
-            // sign, so keep the sign that continues smoothly from the previous
-            // sample (or from the louder neighbour). A fifth up is three halves.
+            // The voices below need memory, and each has an ambiguity: half a
+            // phase is only known up to a sign, a quarter up to a quarter turn,
+            // and the detune offset is arbitrary. Each band handles this in two
+            // layers:
+            //   own:  the band's own phasor, always continuous with its own
+            //         previous sample, so it never jumps.
+            //   turn: a rotation applied on top so the band agrees with its
+            //         louder neighbour (a note is spread over a few neighbouring
+            //         bands and they must add up, not cancel). When the wanted
+            //         rotation changes, the band glides to it over a few ms
+            //         instead of jumping, which would click.
+            // eff (own x wanted rotation) is what neighbours look at.
+
+            // Octave down: halve the phase. A fifth up is three halves.
             if (needHalf)
             {
-                const float* PUPPYCHOW_RESTRICT const pC = halfCos[prv] + pad;
-                const float* PUPPYCHOW_RESTRICT const pS = halfSin[prv] + pad;
-                float* PUPPYCHOW_RESTRICT const nC = halfCos[nxt] + pad;
-                float* PUPPYCHOW_RESTRICT const nS = halfSin[nxt] + pad;
+                const float* PUPPYCHOW_RESTRICT const pEffC = halfCos[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pEffS = halfSin[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pOwnC = ownHalfCos[prv];
+                const float* PUPPYCHOW_RESTRICT const pOwnS = ownHalfSin[prv];
+                float* PUPPYCHOW_RESTRICT const nEffC = halfCos[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nEffS = halfSin[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nOwnC = ownHalfCos[nxt];
+                float* PUPPYCHOW_RESTRICT const nOwnS = ownHalfSin[nxt];
+                float* PUPPYCHOW_RESTRICT const turn = turnHalf;
                 float* PUPPYCHOW_RESTRICT const oDown1 = outs_[down1];
                 float* PUPPYCHOW_RESTRICT const oFifth = outs_[fifthUp];
+                const float glide = turnGlide;
 
                 for (int k = 0; k < nb; ++k)
                 {
                     const float c = cosA[k], s = sinA[k], amp = ampA[k];
                     const float hc0 = std::sqrt (std::max (0.0f, 0.5f * (1.0f + c)));
                     const float hs0 = (s >= 0.0f ? 1.0f : -1.0f) * std::sqrt (std::max (0.0f, 0.5f * (1.0f - c)));
+                    const float ownSign = (hc0 * pOwnC[k] + hs0 * pOwnS[k]) >= 0.0f ? 1.0f : -1.0f;
+                    const float oc = ownSign * hc0, os = ownSign * hs0;
+                    nOwnC[k] = oc; nOwnS[k] = os;
+
                     const float keep = 1.0f - followL[k] - followR[k];
-                    const float refC = followL[k] * pC[k - 1] + followR[k] * pC[k + 1] + keep * pC[k];
-                    const float refS = followL[k] * pS[k - 1] + followR[k] * pS[k + 1] + keep * pS[k];
-                    const float sign = (hc0 * refC + hs0 * refS) >= 0.0f ? 1.0f : -1.0f;
-                    const float hc = sign * hc0, hs = sign * hs0;
-                    nC[k] = hc; nS[k] = hs;
+                    const float refC = followL[k] * pEffC[k - 1] + followR[k] * pEffC[k + 1] + keep * pEffC[k];
+                    const float refS = followL[k] * pEffS[k - 1] + followR[k] * pEffS[k + 1] + keep * pEffS[k];
+                    const float want = (oc * refC + os * refS) >= 0.0f ? 1.0f : -1.0f;
+                    nEffC[k] = want * oc; nEffS[k] = want * os;
+
+                    const float t = turn[k] + glide * (want - turn[k]);
+                    turn[k] = t;
+                    const float hc = t * oc;
                     oDown1[k] = amp * hc;
-                    oFifth[k] = gainFifth[k] * amp * (4.0f * hc * hc * hc - 3.0f * hc);
+                    oFifth[k] = gainFifth[k] * amp * t * t * t * (4.0f * oc * oc * oc - 3.0f * oc);
                 }
             }
 
-            // Two octaves down: halve again, same idea. A fourth down is three quarters.
+            // Two octaves down: halve the band's own half phase again. A fourth
+            // down is three quarters. Here the rotation is a quarter turn step.
             if (needQuarter)
             {
-                const float* PUPPYCHOW_RESTRICT const hC = halfCos[nxt] + pad;
-                const float* PUPPYCHOW_RESTRICT const hS = halfSin[nxt] + pad;
-                const float* PUPPYCHOW_RESTRICT const pC = quartCos[prv] + pad;
-                const float* PUPPYCHOW_RESTRICT const pS = quartSin[prv] + pad;
-                float* PUPPYCHOW_RESTRICT const nC = quartCos[nxt] + pad;
-                float* PUPPYCHOW_RESTRICT const nS = quartSin[nxt] + pad;
+                const float* PUPPYCHOW_RESTRICT const hOwnC = ownHalfCos[nxt];
+                const float* PUPPYCHOW_RESTRICT const hOwnS = ownHalfSin[nxt];
+                const float* PUPPYCHOW_RESTRICT const pEffC = quartCos[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pEffS = quartSin[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pOwnC = ownQuartCos[prv];
+                const float* PUPPYCHOW_RESTRICT const pOwnS = ownQuartSin[prv];
+                float* PUPPYCHOW_RESTRICT const nEffC = quartCos[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nEffS = quartSin[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nOwnC = ownQuartCos[nxt];
+                float* PUPPYCHOW_RESTRICT const nOwnS = ownQuartSin[nxt];
+                float* PUPPYCHOW_RESTRICT const turnRe = turnQuartRe;
+                float* PUPPYCHOW_RESTRICT const turnIm = turnQuartIm;
                 float* PUPPYCHOW_RESTRICT const oDown2 = outs_[down2];
                 float* PUPPYCHOW_RESTRICT const oFourth = outs_[fourthDown];
+                const float glide = turnGlide;
 
                 for (int k = 0; k < nb; ++k)
                 {
-                    const float hc = hC[k], hs = hS[k], amp = ampA[k];
+                    const float hc = hOwnC[k], hs = hOwnS[k], amp = ampA[k];
                     const float qc0 = std::sqrt (std::max (0.0f, 0.5f * (1.0f + hc)));
                     const float qs0 = (hs >= 0.0f ? 1.0f : -1.0f) * std::sqrt (std::max (0.0f, 0.5f * (1.0f - hc)));
+                    const float ownSign = (qc0 * pOwnC[k] + qs0 * pOwnS[k]) >= 0.0f ? 1.0f : -1.0f;
+                    const float qc = ownSign * qc0, qs = ownSign * qs0;
+                    nOwnC[k] = qc; nOwnS[k] = qs;
+
                     const float keep = 1.0f - followL[k] - followR[k];
-                    const float refC = followL[k] * pC[k - 1] + followR[k] * pC[k + 1] + keep * pC[k];
-                    const float refS = followL[k] * pS[k - 1] + followR[k] * pS[k + 1] + keep * pS[k];
-                    const float sign = (qc0 * refC + qs0 * refS) >= 0.0f ? 1.0f : -1.0f;
-                    const float qc = sign * qc0, qs = sign * qs0;
-                    nC[k] = qc; nS[k] = qs;
-                    oDown2[k] = amp * qc;
-                    oFourth[k] = amp * (4.0f * qc * qc * qc - 3.0f * qc);
+                    const float refC = followL[k] * pEffC[k - 1] + followR[k] * pEffC[k + 1] + keep * pEffC[k];
+                    const float refS = followL[k] * pEffS[k - 1] + followR[k] * pEffS[k + 1] + keep * pEffS[k];
+
+                    // Wanted rotation: ref / own, snapped to the nearest quarter turn.
+                    const float zr = refC * qc + refS * qs, zi = refS * qc - refC * qs;
+                    const float useRe = std::abs (zr) >= std::abs (zi) ? 1.0f : 0.0f;
+                    const float wr = useRe * (zr >= 0.0f ? 1.0f : -1.0f);
+                    const float wi = (1.0f - useRe) * (zi >= 0.0f ? 1.0f : -1.0f);
+                    nEffC[k] = qc * wr - qs * wi; nEffS[k] = qc * wi + qs * wr;
+
+                    // Glide towards the wanted rotation. Values that are gliding to
+                    // zero are snapped once tiny, to avoid slow denormal numbers.
+                    float tr = turnRe[k] + glide * (wr - turnRe[k]);
+                    float ti = turnIm[k] + glide * (wi - turnIm[k]);
+                    tr = std::abs (tr) < 1.0e-6f ? 0.0f : tr;
+                    ti = std::abs (ti) < 1.0e-6f ? 0.0f : ti;
+                    turnRe[k] = tr; turnIm[k] = ti;
+                    const float oc = qc * tr - qs * ti, os = qc * ti + qs * tr;
+                    oDown2[k] = amp * oc;
+                    oFourth[k] = amp * (oc * oc * oc - 3.0f * oc * os * os);
                 }
             }
 
             // Detune: a slowly turning extra phase makes slightly sharp copies of
-            // the octave-up voices.
+            // the octave-up voices. Same own/turn idea, with a free rotation.
             if (needDetune)
             {
-                const float* PUPPYCHOW_RESTRICT const pC = detCos[prv] + pad;
-                const float* PUPPYCHOW_RESTRICT const pS = detSin[prv] + pad;
-                float* PUPPYCHOW_RESTRICT const nC = detCos[nxt] + pad;
-                float* PUPPYCHOW_RESTRICT const nS = detSin[nxt] + pad;
+                const float* PUPPYCHOW_RESTRICT const pEffC = detCos[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pEffS = detSin[prv] + pad;
+                const float* PUPPYCHOW_RESTRICT const pOwnC = ownDetCos[prv];
+                const float* PUPPYCHOW_RESTRICT const pOwnS = ownDetSin[prv];
+                float* PUPPYCHOW_RESTRICT const nEffC = detCos[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nEffS = detSin[nxt] + pad;
+                float* PUPPYCHOW_RESTRICT const nOwnC = ownDetCos[nxt];
+                float* PUPPYCHOW_RESTRICT const nOwnS = ownDetSin[nxt];
+                float* PUPPYCHOW_RESTRICT const turnRe = turnDetRe;
+                float* PUPPYCHOW_RESTRICT const turnIm = turnDetIm;
                 float* PUPPYCHOW_RESTRICT const oUp1Det = outs_[up1Detuned];
                 float* PUPPYCHOW_RESTRICT const oUp2Det = outs_[up2Detuned];
+                const float* PUPPYCHOW_RESTRICT const rotC = detRotCos;
+                const float* PUPPYCHOW_RESTRICT const rotS = detRotSin;
+                const float* PUPPYCHOW_RESTRICT const g1 = gainUp1;
+                const float* PUPPYCHOW_RESTRICT const g2 = gainUp2;
+                const float* PUPPYCHOW_RESTRICT const fL = followL;
+                const float* PUPPYCHOW_RESTRICT const fR = followR;
+                const float* PUPPYCHOW_RESTRICT const ampP = ampA;
+                const float* PUPPYCHOW_RESTRICT const c2P = cos2A;
+                const float* PUPPYCHOW_RESTRICT const s2P = sin2A;
+                const float glide = turnGlide;
 
+                PUPPYCHOW_VECTORISE
                 for (int k = 0; k < nb; ++k)
                 {
-                    const float keep = 1.0f - followL[k] - followR[k];
-                    const float baseC = followL[k] * pC[k - 1] + followR[k] * pC[k + 1] + keep * pC[k];
-                    const float baseS = followL[k] * pS[k - 1] + followR[k] * pS[k + 1] + keep * pS[k];
-                    float dc = baseC * detRotCos[k] - baseS * detRotSin[k];
-                    float ds = baseC * detRotSin[k] + baseS * detRotCos[k];
+                    const float pc = pOwnC[k], ps = pOwnS[k];
+                    float dc = pc * rotC[k] - ps * rotS[k];
+                    float ds = pc * rotS[k] + ps * rotC[k];
                     const float fix = 1.5f - 0.5f * (dc * dc + ds * ds);         // keep its length at 1
                     dc *= fix; ds *= fix;
-                    nC[k] = dc; nS[k] = ds;
+                    nOwnC[k] = dc; nOwnS[k] = ds;
 
-                    const float c2 = cos2A[k], s2 = sin2A[k], amp = ampA[k];
+                    // Wanted rotation: neighbour's previous eff / own previous phasor.
+                    const float keep = 1.0f - fL[k] - fR[k];
+                    const float refC = fL[k] * pEffC[k - 1] + fR[k] * pEffC[k + 1] + keep * pEffC[k];
+                    const float refS = fL[k] * pEffS[k - 1] + fR[k] * pEffS[k + 1] + keep * pEffS[k];
+                    float wr = refC * pc + refS * ps, wi = refS * pc - refC * ps;
+                    const float wInv = 1.0f / (std::sqrt (wr * wr + wi * wi) + 1.0e-12f);
+                    wr *= wInv; wi *= wInv;
+                    nEffC[k] = dc * wr - ds * wi; nEffS[k] = dc * wi + ds * wr;
+
+                    float tr = turnRe[k] + glide * (wr - turnRe[k]);
+                    float ti = turnIm[k] + glide * (wi - turnIm[k]);
+                    tr = std::abs (tr) < 1.0e-6f ? 0.0f : tr;
+                    ti = std::abs (ti) < 1.0e-6f ? 0.0f : ti;
+                    turnRe[k] = tr; turnIm[k] = ti;
+                    const float hc = dc * tr - ds * ti, hs = dc * ti + ds * tr;
+
+                    const float c2 = c2P[k], s2 = s2P[k], amp = ampP[k];
                     const float c4 = 2.0f * c2 * c2 - 1.0f, s4 = 2.0f * c2 * s2;
-                    oUp1Det[k] = gainUp1[k] * amp * (c2 * dc - s2 * ds);
-                    oUp2Det[k] = gainUp2[k] * amp * (c4 * (dc * dc - ds * ds) - s4 * (2.0f * dc * ds));
+                    oUp1Det[k] = g1[k] * amp * (c2 * hc - s2 * hs);
+                    oUp2Det[k] = g2[k] * amp * (c4 * (hc * hc - hs * hs) - s4 * (2.0f * hc * hs));
                 }
             }
 
@@ -377,12 +485,50 @@ public:
                 for (int k = 0; k < nb8; k += 8)
                     for (int j = 0; j < 8; ++j)
                         acc[j] += o[k + j];
-                outs[v][i] = (((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]))) * norm[(size_t) v];
+                const float sum = (((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]))) * norm[(size_t) v];
+                outs[v][i] = smoothing[(size_t) v].process (sum);
             }
         }
     }
 
 private:
+    // Fourth-order low-pass (two Butterworth sections). Each voice can only
+    // legitimately contain frequencies up to (highest band) x (its pitch
+    // ratio). Anything above that is fizz from fast phase wobbles during pick
+    // attacks and beating notes, which a high-gain amp turns into crackle.
+    struct LowPass
+    {
+        float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+        float z[2][2] {};
+
+        void design (double cutoffHz, double sampleRate)
+        {
+            const double w0 = 6.283185307179586 * cutoffHz / sampleRate;
+            const double alpha = std::sin (w0) / (2.0 * 0.7071067811865476);
+            const double cw = std::cos (w0), a0 = 1.0 + alpha;
+            b0 = (float) ((1.0 - cw) * 0.5 / a0); b1 = (float) ((1.0 - cw) / a0); b2 = b0;
+            a1 = (float) (-2.0 * cw / a0); a2 = (float) ((1.0 - alpha) / a0);
+            reset();
+        }
+
+        void reset() { z[0][0] = z[0][1] = z[1][0] = z[1][1] = 0.0f; }
+
+        float process (float x) noexcept
+        {
+            for (auto& st : z)
+            {
+                // Transposed direct form II.
+                const float y = b0 * x + st[0];
+                st[0] = b1 * x - a1 * y + st[1];
+                st[1] = b2 * x - a2 * y;
+                x = y;
+            }
+            return x;
+        }
+    };
+
+    std::array<LowPass, numVoices> smoothing;
+
     void clearVoice (int v) noexcept
     {
         for (auto& o : outs_[v]) o = 0.0f;
@@ -492,6 +638,7 @@ private:
     double sr = 48000.0;
     int numBands = 0;
     int cur = 0;
+    float turnGlide = 0.01f;   // per-sample glide factor for band rotations
     bool needHalf = true, needQuarter = true, needDetune = true;
     float detuneCents = -1.0f;
     std::array<float, numVoices> norm {};
@@ -507,6 +654,11 @@ private:
     alignas (32) float halfCos[2][maxBands + 2 * pad] {}, halfSin[2][maxBands + 2 * pad] {};
     alignas (32) float quartCos[2][maxBands + 2 * pad] {}, quartSin[2][maxBands + 2 * pad] {};
     alignas (32) float detCos[2][maxBands + 2 * pad] {}, detSin[2][maxBands + 2 * pad] {};
+    alignas (32) float ownHalfCos[2][maxBands] {}, ownHalfSin[2][maxBands] {};
+    alignas (32) float ownQuartCos[2][maxBands] {}, ownQuartSin[2][maxBands] {};
+    alignas (32) float ownDetCos[2][maxBands] {}, ownDetSin[2][maxBands] {};
+    alignas (32) float turnHalf[maxBands] {}, turnQuartRe[maxBands] {}, turnQuartIm[maxBands] {};
+    alignas (32) float turnDetRe[maxBands] {}, turnDetIm[maxBands] {};
     alignas (32) float outs_[numVoices][maxBands] {};
 };
 

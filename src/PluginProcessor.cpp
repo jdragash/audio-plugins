@@ -20,6 +20,24 @@ PuppyChowProcessor::PuppyChowProcessor()
     detuneCents = parameters.getRawParameterValue ("detune");
     swellMs = parameters.getRawParameterValue ("swell");
     trackingMode = parameters.getRawParameterValue ("tracking");
+    outputDb = parameters.getRawParameterValue ("output");
+}
+
+namespace
+{
+    // Gentle safety limiter on the final output. Below -2 dBFS nothing changes;
+    // above it, peaks are rounded off smoothly so they never exceed 0 dBFS.
+    // Stacking several voices on a hard strum can otherwise overload whatever
+    // comes next, which sounds like crackle.
+    inline float softLimit (float x) noexcept
+    {
+        constexpr float knee = 0.8f, room = 1.0f - knee;
+        const float a = std::abs (x);
+        if (a <= knee)
+            return x;
+        const float y = knee + room * std::tanh ((a - knee) / room);
+        return x < 0.0f ? -y : y;
+    }
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createParameterLayout()
@@ -52,6 +70,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
         juce::ParameterID { "tracking", 1 }, "Tracking",
         juce::StringArray { "Tight", "Balanced", "Clean" }, 2));
 
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "output", 1 }, "Output",
+        juce::NormalisableRange<float> (puppychow::minOutputDb, puppychow::maxOutputDb, 0.1f), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
     return layout;
 }
 
@@ -77,6 +100,9 @@ void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
         gains[i].reset (sampleRate, 0.02); // 20 ms smoothing avoids zipper noise
         gains[i].setCurrentAndTargetValue (channelTargetGain ((int) i));
     }
+
+    outputGain.reset (sampleRate, 0.02);
+    outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputDb->load()));
 
     detuneMix.reset (sampleRate, 0.05);
     detuneMix.setCurrentAndTargetValue (juce::jlimit (0.0f, 1.0f, detuneCents->load() / 3.0f));
@@ -139,6 +165,8 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         if (channels[i].engineVoice >= 0)
             active[channels[i].engineVoice] = g.getTargetValue() > 0.0f || g.isSmoothing();
     }
+
+    outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputDb->load()));
 
     const float cents = detuneCents->load();
     engine.setDetuneCents (cents);
@@ -227,10 +255,11 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             wetHighpassState = wet + wetHighpassCoeff * (wetHighpassState - wet);
             wet -= wetHighpassState;
 
+            const float out = outputGain.getNextValue();
             for (int ch = 0; ch < numOut; ++ch)
             {
                 float* dst = buffer.getWritePointer (ch, start);
-                dst[i] = dst[i] * dry + wet;
+                dst[i] = softLimit ((dst[i] * dry + wet) * out);
             }
         }
     }

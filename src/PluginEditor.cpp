@@ -13,9 +13,9 @@ namespace
 }
 
 PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
-    : AudioProcessorEditor (&p), processor (p)
+    : AudioProcessorEditor (&p), pluginProcessor (p)
 {
-    auto& params = processor.getParameters();
+    auto& params = pluginProcessor.getParameters();
 
     for (size_t i = 0; i < channelStrips.size(); ++i)
     {
@@ -36,6 +36,7 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
 
     setUpSlider (detuneStrip, "Detune", "detune", " ct");
     setUpSlider (swellStrip, "Swell", "swell", " ms");
+    setUpSlider (outputStrip, "Output", "output", " dB");
 
     trackingLabel.setText ("Tracking", juce::dontSendNotification);
     trackingLabel.setColour (juce::Label::textColourId, cream);
@@ -46,7 +47,7 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
     addAndMakeVisible (trackingBox);
     trackingAttachment = std::make_unique<ComboBoxAttachment> (params, "tracking", trackingBox);
 
-    setSize (2 * margin + stripWidth * (puppychow::numChannels + 2) + gapBeforeExtras, 400);
+    setSize (2 * margin + stripWidth * (puppychow::numChannels + 3) + gapBeforeExtras, 400);
 }
 
 void PuppyChowEditor::setUpSlider (Strip& strip, const juce::String& title, const juce::String& paramId, const juce::String& suffix)
@@ -62,7 +63,7 @@ void PuppyChowEditor::setUpSlider (Strip& strip, const juce::String& title, cons
     strip.slider.setColour (juce::Slider::textBoxTextColourId, cream);
     strip.slider.setColour (juce::Slider::thumbColourId, cream);
     addAndMakeVisible (strip.slider);
-    strip.sliderAttachment = std::make_unique<SliderAttachment> (processor.getParameters(), paramId, strip.slider);
+    strip.sliderAttachment = std::make_unique<SliderAttachment> (pluginProcessor.getParameters(), paramId, strip.slider);
     strip.slider.setTextValueSuffix (suffix);
 }
 
@@ -105,4 +106,5 @@ void PuppyChowEditor::resized()
     area.removeFromLeft (gapBeforeExtras);
     layOut (detuneStrip, area.removeFromLeft (stripWidth), false);
     layOut (swellStrip, area.removeFromLeft (stripWidth), false);
+    layOut (outputStrip, area.removeFromLeft (stripWidth), false);
 }

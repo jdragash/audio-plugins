@@ -234,6 +234,57 @@ void testSilenceAndSafety (OctaveEngine& e, double sr)
     check (peak < 8.0, "noise bursts: output peak stays bounded", peak, "", 8.0);
 }
 
+// Plucked low notes and fast strums must not produce clicks: sudden jumps
+// that a smooth signal at that voice's pitch range could never make.
+void testClicks (OctaveEngine& e, double sr, const char* modeName)
+{
+    const int n = (int) (4.0 * sr);
+    std::vector<float> in ((size_t) n, 0.0f);
+
+    auto pluck = [&] (double startSeconds, double hz, double amp)
+    {
+        const int at = (int) (startSeconds * sr);
+        unsigned seed = (unsigned) at * 7u + 1u;
+        for (int i = at; i < n; ++i)
+        {
+            const double t = (i - at) / sr;
+            double x = 0.0;
+            for (int h = 1; h <= 12 && hz * h < 5000.0; ++h)
+                x += std::sin (2.0 * pi * hz * h * t * (1.0 + 0.0004 * h * h)) / h * std::exp (-t * (1.5 + 0.4 * h));
+            if (t < 0.004) // pick noise
+            {
+                seed = seed * 1664525u + 1013904223u;
+                x += ((seed >> 8) / 8388608.0 - 1.0) * 0.5 * (1.0 - t / 0.004);
+            }
+            in[(size_t) i] += (float) (amp * x);
+        }
+    };
+
+    pluck (0.1, 82.41, 0.2);  pluck (0.8, 73.42, 0.2);  pluck (1.4, 110.0, 0.2);
+    const double chord[6] = { 82.41, 123.47, 164.81, 207.65, 246.94, 329.63 };
+    for (int r = 0; r < 2; ++r)
+        for (int s = 0; s < 6; ++s)
+            pluck (2.0 + r * 0.9 + s * 0.012, chord[s], 0.12);
+
+    const auto out = run (e, in);
+
+    for (int v = 0; v < numPlainVoices; ++v)
+    {
+        // The largest second difference a signal of amplitude 1 can have at the
+        // voice's top frequency, with some margin.
+        const double topHz = std::min (5000.0 * voiceRatio[v], 0.45 * sr);
+        const double limit = 0.6 * std::pow (2.0 * pi * topHz / sr, 2.0) + 0.002;
+        int clicks = 0;
+        for (size_t i = 2; i < out.v[v].size(); ++i)
+        {
+            const double d2 = std::abs (out.v[v][i] - 2.0 * out.v[v][i - 1] + out.v[v][i - 2]);
+            if (d2 > limit) ++clicks;
+        }
+        check (clicks == 0, std::string (modeName) + " tracking, low notes and strums, " + voiceName[v] + ": click samples",
+               clicks, "", 0.0);
+    }
+}
+
 void testCpu (OctaveEngine& e, double sr)
 {
     const auto in = render ({ { 82.41, 8 }, { 123.47, 8 }, { 164.81, 8 } }, sr, (int) (5 * sr));
@@ -326,6 +377,7 @@ int main (int argc, char** argv)
             testAttack (e, sr, 440.0, 66.0);
             testAttack (e, sr, 880.0, 40.0);
             testSilenceAndSafety (e, sr);
+            testClicks (e, sr, "Clean");
             testCpu (e, sr);
 
             // The other tracking modes: single notes must stay clean and stable.
@@ -339,6 +391,7 @@ int main (int argc, char** argv)
                 testPitches (other, sr, "A 440 sine",   { { 440.0, 1 } }, clean);
                 testPitches (other, sr, "major third A3+C#4 (sines)", { { 220.0, 1 }, { 277.18, 1 } }, chord);
                 testSilenceAndSafety (other, sr);
+                testClicks (other, sr, m.name);
                 testCpu (other, sr);
                 if (report)
                 {

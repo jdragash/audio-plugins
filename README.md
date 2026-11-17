@@ -14,6 +14,8 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
   two octaves up.
 - **Detune** adds slightly sharp copies of the two octave-up voices for a 12-string shimmer.
 - **Swell** fades the voices in after each picked note, like a volume swell or a bowed string.
+- **Output** sets the overall level. A gentle limiter rounds off peaks above about -2 dBFS so
+  stacked voices on a hard strum never overload whatever comes next.
 - **Tracking** trades speed for cleanliness. *Tight* responds fastest, *Clean* keeps low and
   close-voiced chords clearest but lets the voices bloom in more slowly, and *Balanced* sits
   between them.

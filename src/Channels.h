@@ -33,4 +33,5 @@ namespace puppychow
     inline constexpr float minLevelDb = -60.0f;   // bottom of a level slider is silent
     inline constexpr float maxDetuneCents = 30.0f;
     inline constexpr float maxSwellMs = 1000.0f;
+    inline constexpr float minOutputDb = -24.0f, maxOutputDb = 6.0f;
 }

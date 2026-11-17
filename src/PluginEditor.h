@@ -30,10 +30,10 @@ private:
 
     void setUpSlider (Strip&, const juce::String& title, const juce::String& paramId, const juce::String& suffix);
 
-    PuppyChowProcessor& processor;
+    PuppyChowProcessor& pluginProcessor;
 
     std::array<Strip, puppychow::numChannels> channelStrips;
-    Strip detuneStrip, swellStrip;
+    Strip detuneStrip, swellStrip, outputStrip;
 
     juce::Label trackingLabel;
     juce::ComboBox trackingBox;
