@@ -24,6 +24,8 @@ private:
         juce::Label title;
         juce::ToggleButton onButton;
         juce::Slider slider;
+        juce::Slider pan;
+        std::unique_ptr<SliderAttachment> panAttachment;
         std::unique_ptr<SliderAttachment> sliderAttachment;
         std::unique_ptr<ButtonAttachment> buttonAttachment;
     };

@@ -9,7 +9,7 @@
 // Puppy Chow: a polyphonic octave pedal.
 // The guitar passes straight through (Dry) and the engine adds up to seven
 // extra voices: octaves down and up, plus a fourth down, a fifth up and an
-// octave-plus-fifth up. Each channel has a level and an on/off switch.
+// octave-plus-fifth up. Each channel has a level, a pan and an on/off switch.
 class PuppyChowProcessor final : public juce::AudioProcessor
 {
 public:
@@ -46,17 +46,20 @@ public:
 
 private:
     float channelTargetGain (int channel) const noexcept;
+    std::pair<float, float> channelPanGains (int channel, bool stereoOut) const noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
 
     std::array<std::atomic<float>*, puppychow::numChannels> levelDb {};
     std::array<std::atomic<float>*, puppychow::numChannels> channelOn {};
+    std::array<std::atomic<float>*, puppychow::numChannels> channelPan {};
     std::atomic<float>* detuneCents = nullptr;
     std::atomic<float>* swellMs = nullptr;
     std::atomic<float>* trackingMode = nullptr;
     std::atomic<float>* outputDb = nullptr;
 
-    std::array<juce::SmoothedValue<float>, puppychow::numChannels> gains;
+    // Per channel: level x pan, for the left and right outputs.
+    std::array<juce::SmoothedValue<float>, puppychow::numChannels> gainsL, gainsR;
     juce::SmoothedValue<float> detuneMix;
     juce::SmoothedValue<float> outputGain;
 
@@ -71,7 +74,7 @@ private:
     float fastEnv = 0.0f, slowEnv = 0.0f, swellRamp = 1.0f, swellGain = 1.0f;
     int samplesSinceOnset = 0;
 
-    float wetHighpassState = 0.0f, wetHighpassCoeff = 0.0f;
+    float wetHighpassStateL = 0.0f, wetHighpassStateR = 0.0f, wetHighpassCoeff = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PuppyChowProcessor)
 };

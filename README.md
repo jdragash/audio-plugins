@@ -9,9 +9,12 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ![Placeholder interface](docs/interface.png)
 
-- **Eight channels**, each with an on/off switch and a level slider: two octaves down, one
+- **Eight channels**, each with an on/off switch, a pan knob and a level slider: two octaves down, one
   octave down, a fourth down, Dry, a fifth up, one octave up, an octave plus a fifth up, and
   two octaves up.
+- **Pan** places each channel left or right (constant-power, so it stays equally loud as it
+  moves; double-click a knob to centre it). Everything starts centred, which sounds exactly like
+  mono. On a stereo input the Dry pan works as a balance control.
 - **Detune** adds slightly sharp copies of the two octave-up voices for a 12-string shimmer.
 - **Swell** fades the voices in after each picked note, like a volume swell or a bowed string.
 - **Output** sets the overall level. A gentle limiter rounds off peaks above about -2 dBFS so

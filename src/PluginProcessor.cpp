@@ -15,6 +15,7 @@ PuppyChowProcessor::PuppyChowProcessor()
     {
         levelDb[i] = parameters.getRawParameterValue (channels[i].id);
         channelOn[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_on");
+        channelPan[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_pan");
     }
 
     detuneCents = parameters.getRawParameterValue ("detune");
@@ -54,6 +55,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
 
         layout.add (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { juce::String (ch.id) + "_on", 1 }, juce::String (ch.name) + " On", ch.defaultOn));
+
+        // Pan: -100 is hard left, 0 centre, +100 hard right.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { juce::String (ch.id) + "_pan", 1 }, juce::String (ch.name) + " Pan",
+            juce::NormalisableRange<float> (-100.0f, 100.0f, 1.0f), 0.0f,
+            juce::AudioParameterFloatAttributes()
+                .withStringFromValueFunction ([] (float v, int)
+                {
+                    const int amount = (int) std::lround (std::abs (v));
+                    return amount == 0 ? juce::String ("C") : juce::String (v < 0 ? "L" : "R") + juce::String (amount);
+                })
+                .withValueFromStringFunction ([] (const juce::String& text)
+                {
+                    const auto t = text.trim().toUpperCase();
+                    if (t.isEmpty() || t == "C") return 0.0f;
+                    if (t.startsWithChar ('L')) return -std::abs (t.substring (1).getFloatValue());
+                    if (t.startsWithChar ('R')) return std::abs (t.substring (1).getFloatValue());
+                    return t.getFloatValue();
+                })));
     }
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -86,6 +106,19 @@ float PuppyChowProcessor::channelTargetGain (int channel) const noexcept
     return (! on || dbValue <= puppychow::minLevelDb + 0.05f) ? 0.0f : juce::Decibels::decibelsToGain (dbValue);
 }
 
+// Constant-power pan law, scaled so the centre position is unchanged (unity
+// on both sides). Moving a channel to one side raises that side by 3 dB and
+// fades the other out, so its loudness stays even as it moves.
+std::pair<float, float> PuppyChowProcessor::channelPanGains (int channel, bool stereoOut) const noexcept
+{
+    if (! stereoOut)
+        return { 1.0f, 1.0f };
+
+    const float pan = juce::jlimit (-1.0f, 1.0f, channelPan[(size_t) channel]->load() / 100.0f);
+    const float angle = (pan + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
+    return { std::cos (angle) * juce::MathConstants<float>::sqrt2, std::sin (angle) * juce::MathConstants<float>::sqrt2 };
+}
+
 void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
 {
     sampleRateHz = sampleRate;
@@ -95,10 +128,15 @@ void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
     engines[2].prepare (sampleRate, OctaveEngine::Tuning::clean());
     activeEngine = -1;
 
-    for (size_t i = 0; i < gains.size(); ++i)
+    const bool stereoOut = getTotalNumOutputChannels() > 1;
+    for (int i = 0; i < numChannels; ++i)
     {
-        gains[i].reset (sampleRate, 0.02); // 20 ms smoothing avoids zipper noise
-        gains[i].setCurrentAndTargetValue (channelTargetGain ((int) i));
+        const float level = channelTargetGain (i);
+        const auto [panL, panR] = channelPanGains (i, stereoOut);
+        gainsL[(size_t) i].reset (sampleRate, 0.02); // 20 ms smoothing avoids zipper noise
+        gainsR[(size_t) i].reset (sampleRate, 0.02);
+        gainsL[(size_t) i].setCurrentAndTargetValue (level * panL);
+        gainsR[(size_t) i].setCurrentAndTargetValue (level * panR);
     }
 
     outputGain.reset (sampleRate, 0.02);
@@ -114,7 +152,7 @@ void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
     // Gentle 20 Hz high-pass on the voices so two octaves below a low note
     // can't push speakers around with inaudible rumble.
     wetHighpassCoeff = (float) std::exp (-juce::MathConstants<double>::twoPi * 20.0 / sampleRate);
-    wetHighpassState = 0.0f;
+    wetHighpassStateL = wetHighpassStateR = 0.0f;
 }
 
 bool PuppyChowProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -157,13 +195,19 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     auto& engine = engines[(size_t) activeEngine];
 
     // Levels, and which voices the engine can skip because nobody hears them.
+    const bool stereoOut = numOut > 1;
     bool active[OctaveEngine::numVoices] = {};
     for (int i = 0; i < numChannels; ++i)
     {
-        auto& g = gains[(size_t) i];
-        g.setTargetValue (channelTargetGain (i));
+        const float level = channelTargetGain (i);
+        const auto [panL, panR] = channelPanGains (i, stereoOut);
+        auto& gL = gainsL[(size_t) i];
+        auto& gR = gainsR[(size_t) i];
+        gL.setTargetValue (level * panL);
+        gR.setTargetValue (level * panR);
         if (channels[i].engineVoice >= 0)
-            active[channels[i].engineVoice] = g.getTargetValue() > 0.0f || g.isSmoothing();
+            active[channels[i].engineVoice] = gL.getTargetValue() > 0.0f || gR.getTargetValue() > 0.0f
+                                              || gL.isSmoothing() || gR.isSmoothing();
     }
 
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputDb->load()));
@@ -215,24 +259,32 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
         for (int i = 0; i < n; ++i)
         {
-            // Mix the voices. The octave-up voices blend in their detuned copies.
+            // Mix the voices into left and right. The octave-up voices blend in
+            // their detuned copies.
             const float det = detuneMix.getNextValue();
-            float wet = 0.0f;
-            float dry = 1.0f;
+            float wetL = 0.0f, wetR = 0.0f;
+            float dryL = 1.0f, dryR = 1.0f;
 
             for (int c = 0; c < numChannels; ++c)
             {
-                const float g = gains[(size_t) c].getNextValue();
+                const float gL = gainsL[(size_t) c].getNextValue();
+                const float gR = gainsR[(size_t) c].getNextValue();
                 const int v = channels[c].engineVoice;
 
                 if (v < 0)
-                    dry = g;
-                else if (v == OctaveEngine::up1)
-                    wet += g * (voices[v][i] * (1.0f - 0.3f * det) + voices[OctaveEngine::up1Detuned][i] * 0.7f * det);
+                {
+                    dryL = gL; dryR = gR;
+                    continue;
+                }
+
+                float x = voices[v][i];
+                if (v == OctaveEngine::up1)
+                    x = x * (1.0f - 0.3f * det) + voices[OctaveEngine::up1Detuned][i] * 0.7f * det;
                 else if (v == OctaveEngine::up2)
-                    wet += g * (voices[v][i] * (1.0f - 0.3f * det) + voices[OctaveEngine::up2Detuned][i] * 0.7f * det);
-                else
-                    wet += g * voices[v][i];
+                    x = x * (1.0f - 0.3f * det) + voices[OctaveEngine::up2Detuned][i] * 0.7f * det;
+
+                wetL += gL * x;
+                wetR += gR * x;
             }
 
             // Swell: watch the input level. When it jumps (a new note is picked),
@@ -249,17 +301,23 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             }
             swellRamp = swellOn ? juce::jmin (1.0f, swellRamp + swellStep) : 1.0f;
             swellGain = swellRamp + gainSmooth * (swellGain - swellRamp);
-            wet *= swellGain;
+            wetL *= swellGain;
+            wetR *= swellGain;
 
             // One-pole high-pass: subtract a slow-moving average.
-            wetHighpassState = wet + wetHighpassCoeff * (wetHighpassState - wet);
-            wet -= wetHighpassState;
+            wetHighpassStateL = wetL + wetHighpassCoeff * (wetHighpassStateL - wetL);
+            wetHighpassStateR = wetR + wetHighpassCoeff * (wetHighpassStateR - wetR);
+            wetL -= wetHighpassStateL;
+            wetR -= wetHighpassStateR;
 
+            // The dry guitar keeps its own left/right (if the input is stereo) and
+            // the Dry pan acts like a balance control on it.
             const float out = outputGain.getNextValue();
             for (int ch = 0; ch < numOut; ++ch)
             {
                 float* dst = buffer.getWritePointer (ch, start);
-                dst[i] = softLimit ((dst[i] * dry + wet) * out);
+                const bool right = ch == 1;
+                dst[i] = softLimit ((dst[i] * (right ? dryR : dryL) + (right ? wetR : wetL)) * out);
             }
         }
     }

@@ -8,7 +8,7 @@ namespace puppychow
 {
     struct Channel
     {
-        const char* id;        // level parameter id; the on/off parameter is id + "_on"
+        const char* id;        // level parameter id; on/off is id + "_on", pan is id + "_pan"
         const char* name;      // name shown to the host
         const char* title;     // short title on the interface
         int engineVoice;

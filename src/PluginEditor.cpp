@@ -29,8 +29,24 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
         addAndMakeVisible (strip.onButton);
         strip.buttonAttachment = std::make_unique<ButtonAttachment> (params, juce::String (ch.id) + "_on", strip.onButton);
 
-        // Dim a strip's slider while its channel is switched off.
-        strip.onButton.onStateChange = [&strip] { strip.slider.setAlpha (strip.onButton.getToggleState() ? 1.0f : 0.35f); };
+        // Small pan knob. Double-click returns it to the centre.
+        strip.pan.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        strip.pan.setTextBoxStyle (juce::Slider::TextBoxBelow, false, stripWidth - 12, 16);
+        strip.pan.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        strip.pan.setColour (juce::Slider::textBoxTextColourId, cream);
+        strip.pan.setColour (juce::Slider::thumbColourId, cream);
+        strip.pan.setPopupDisplayEnabled (false, false, nullptr);
+        addAndMakeVisible (strip.pan);
+        strip.panAttachment = std::make_unique<SliderAttachment> (params, juce::String (ch.id) + "_pan", strip.pan);
+        strip.pan.setDoubleClickReturnValue (true, 0.0);
+
+        // Dim a strip's controls while its channel is switched off.
+        strip.onButton.onStateChange = [&strip]
+        {
+            const float alpha = strip.onButton.getToggleState() ? 1.0f : 0.35f;
+            strip.slider.setAlpha (alpha);
+            strip.pan.setAlpha (alpha);
+        };
         strip.onButton.onStateChange();
     }
 
@@ -47,7 +63,7 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
     addAndMakeVisible (trackingBox);
     trackingAttachment = std::make_unique<ComboBoxAttachment> (params, "tracking", trackingBox);
 
-    setSize (2 * margin + stripWidth * (puppychow::numChannels + 3) + gapBeforeExtras, 400);
+    setSize (2 * margin + stripWidth * (puppychow::numChannels + 3) + gapBeforeExtras, 470);
 }
 
 void PuppyChowEditor::setUpSlider (Strip& strip, const juce::String& title, const juce::String& paramId, const juce::String& suffix)
@@ -95,8 +111,12 @@ void PuppyChowEditor::resized()
         column = column.reduced (4, 6);
         strip.title.setBounds (column.removeFromTop (22));
         auto buttonRow = column.removeFromTop (26);
+        auto panRow = column.removeFromTop (70);
         if (hasButton)
+        {
             strip.onButton.setBounds (buttonRow.withSizeKeepingCentre (56, 24));
+            strip.pan.setBounds (panRow.withSizeKeepingCentre (stripWidth - 8, 66));
+        }
         strip.slider.setBounds (column);
     };
 
