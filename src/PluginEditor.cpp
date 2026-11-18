@@ -91,6 +91,10 @@ void PuppyChowEditor::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (26.0f, juce::Font::bold));
     g.drawText ("Puppy Chow", juce::Rectangle<int> (margin, 0, 300, headerHeight), juce::Justification::centredLeft);
 
+    g.setColour (cream.withAlpha (0.5f));
+    g.setFont (juce::FontOptions (13.0f));
+    g.drawText ("v" JucePlugin_VersionString, juce::Rectangle<int> (margin + 150, 6, 100, headerHeight), juce::Justification::centredLeft);
+
     // A slightly lighter panel behind the Dry strip so the eye finds the middle.
     const auto dry = juce::Rectangle<int> (margin + stripWidth * puppychow::dryChannel, headerHeight,
                                            stripWidth, getHeight() - headerHeight - margin);
