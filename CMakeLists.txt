@@ -77,3 +77,45 @@ if(NOT MSVC)
     target_compile_options(PuppyChowEngineTests PRIVATE -O3 -fno-math-errno)
 endif()
 add_test(NAME engine COMMAND PuppyChowEngineTests)
+
+# Host tests: the real plugin processor driven like a DAW would (several
+# instances, odd block sizes, state copies). Built from the plugin sources so
+# it needs no plugin host.
+juce_add_console_app(PuppyChowHostTests PRODUCT_NAME "PuppyChowHostTests")
+target_sources(PuppyChowHostTests PRIVATE
+    tests/host_tests.cpp
+    src/PluginProcessor.cpp
+    src/PluginEditor.cpp)
+target_include_directories(PuppyChowHostTests PRIVATE src)
+target_compile_definitions(PuppyChowHostTests PRIVATE
+    JucePlugin_Name="Puppy Chow"
+    JucePlugin_VersionString="${PROJECT_VERSION}"
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
+if(NOT MSVC)
+    target_compile_options(PuppyChowHostTests PRIVATE -fno-math-errno)
+endif()
+target_link_libraries(PuppyChowHostTests PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_recommended_config_flags)
+add_test(NAME host COMMAND PuppyChowHostTests)
+
+# macOS only: loads the installed Audio Unit the way Logic does and runs
+# several instances side by side. Not part of ctest because it needs the
+# plugin installed first. See tests/au_host_check.cpp.
+if(APPLE)
+    juce_add_console_app(PuppyChowAUHostCheck PRODUCT_NAME "PuppyChowAUHostCheck")
+    target_sources(PuppyChowAUHostCheck PRIVATE tests/au_host_check.cpp)
+    target_compile_definitions(PuppyChowAUHostCheck PRIVATE
+        JUCE_PLUGINHOST_AU=1
+        JUCE_PLUGINHOST_VST3=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_link_libraries(PuppyChowAUHostCheck PRIVATE
+        juce::juce_audio_processors
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags)
+endif()
