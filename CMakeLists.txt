@@ -117,5 +117,6 @@ if(APPLE)
     target_link_libraries(PuppyChowAUHostCheck PRIVATE
         juce::juce_audio_processors
         juce::juce_gui_basics
-        juce::juce_recommended_config_flags)
+        juce::juce_recommended_config_flags
+        "-framework CoreAudioKit")
 endif()
