@@ -198,6 +198,47 @@ StressResult stress (double sr, int channels, double seconds, juce::uint32 seed)
     return r;
 }
 
+// Power of one frequency in a signal (Goertzel), as a fraction of a full-scale sine's.
+double tonePower (const std::vector<float>& x, double freq, double sr)
+{
+    const double w = 2.0 * juce::MathConstants<double>::pi * freq / sr, k = 2.0 * std::cos (w);
+    double s1 = 0.0, s2 = 0.0;
+    for (float v : x) { const double s0 = v + k * s1 - s2; s2 = s1; s1 = s0; }
+    const double p = s1 * s1 + s2 * s2 - k * s1 * s2;
+    return 4.0 * p / ((double) x.size() * (double) x.size());
+}
+
+double meanPower (const std::vector<float>& x, size_t from, size_t to)
+{
+    double sum = 0.0;
+    for (size_t i = from; i < to; ++i) sum += (double) x[i] * x[i];
+    return sum / (double) std::max<size_t> (1, to - from);
+}
+
+// Plays a steady sine (after a short silence) through only the given channel
+// and returns the left output.
+std::vector<float> playSine (PuppyChowProcessor& p, double sr, double freq, double seconds, long silence)
+{
+    juce::AudioBuffer<float> buffer (2, 256);
+    juce::MidiBuffer midi;
+    std::vector<float> out;
+    const long total = (long) (seconds * sr);
+    for (long pos = 0; pos < total; pos += 256)
+    {
+        for (int i = 0; i < 256; ++i)
+        {
+            const long n = pos + i;
+            const float x = n >= silence ? 0.3f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * freq * (double) n / sr) : 0.0f;
+            buffer.setSample (0, i, x); buffer.setSample (1, i, x);
+        }
+        p.processBlock (buffer, midi);
+        for (int i = 0; i < 256; ++i) out.push_back (buffer.getSample (0, i));
+    }
+    return out;
+}
+
+void soloChannel (PuppyChowProcessor& p, const juce::String& id);
+
 void setParam (PuppyChowProcessor& p, const juce::String& id, float value)
 {
     if (auto* param = p.getParameters().getParameter (id))
@@ -214,6 +255,15 @@ std::unique_ptr<PuppyChowProcessor> makeInstance (double sr, int block, int chan
     p->setRateAndBufferSizeDetails (sr, block);
     p->prepareToPlay (sr, block);
     return p;
+}
+
+void soloChannel (PuppyChowProcessor& p, const juce::String& id)
+{
+    for (const auto& ch : puppychow::channels)
+    {
+        setParam (p, juce::String (ch.id) + "_on", juce::String (ch.id) == id ? 1.0f : 0.0f);
+        setParam (p, ch.id, 0.0f);
+    }
 }
 
 void expectGood (const Result& r, const juce::String& what)
@@ -381,6 +431,60 @@ int main (int argc, char** argv)
             check (ratioDb < -12.0, "Swell Dry on: dry starts quiet after a pick (" + juce::String (ratioDb, 1) + " dB vs later)");
         else
             check (std::abs (ratioDb) < 1.0, "Swell Dry off: dry is at full level right away (" + juce::String (ratioDb, 1) + " dB vs later)");
+    }
+
+    // 9. Overtones: the 7th, 9th, 11th and 13th harmonics of the note, and
+    //    they bloom in rather than arriving with the pick.
+    {
+        const double sr = 48000.0, f = 110.0;
+        auto a = makeInstance (sr, 256);
+        soloChannel (*a, "overtones");
+        const long silence = 12000;
+        const auto out = playSine (*a, sr, f, 2.0, silence);
+        std::vector<float> steady (out.begin() + silence + 48000, out.begin() + silence + 76800);
+        double partials = 0.0;
+        for (int h : { 7, 9, 11, 13 }) partials += tonePower (steady, h * f, sr);
+        const double total = meanPower (steady, 0, steady.size()) * 2.0;   // a sine's power is half its peak squared
+        check (std::isfinite (total) && total > 1.0e-4, "Overtones make sound (" + juce::String (10.0 * std::log10 (total + 1e-20), 1) + " dB)");
+        check (partials > 0.7 * total, "Overtones are mostly harmonics 7, 9, 11 and 13 ("
+                                       + juce::String (100.0 * partials / (total + 1e-20), 0) + " %)");
+        const double early = meanPower (out, (size_t) silence + 480, (size_t) silence + 1920);
+        const double later = meanPower (out, (size_t) silence + 48000, (size_t) silence + 76800);
+        const double bloomDb = 10.0 * std::log10 ((early + 1e-20) / (later + 1e-20));
+        check (bloomDb < -6.0, "Overtones bloom in after the pick (" + juce::String (bloomDb, 1) + " dB at 10-40 ms vs later)");
+    }
+
+    // 10. Warmth: adds harmonics to the octave up, keeps its level roughly the
+    //     same, and leaves the octave down alone.
+    {
+        const double sr = 48000.0, f = 220.0;
+        double level[2] {}, distortion[2] {};
+        for (int w = 0; w < 2; ++w)
+        {
+            auto a = makeInstance (sr, 256);
+            soloChannel (*a, "up1");
+            setParam (*a, "warmth", w == 0 ? 0.0f : 100.0f);
+            const auto out = playSine (*a, sr, f, 1.5, 0);
+            std::vector<float> steady (out.begin() + 36000, out.end());
+            level[w] = meanPower (steady, 0, steady.size()) * 2.0;
+            const double fundamental = tonePower (steady, 2.0 * f, sr);
+            distortion[w] = (level[w] - fundamental) / (level[w] + 1e-20);
+        }
+        const double levelDb = 10.0 * std::log10 ((level[1] + 1e-20) / (level[0] + 1e-20));
+        check (std::abs (levelDb) < 3.0, "Warmth keeps the level within 3 dB (" + juce::String (levelDb, 1) + " dB)");
+        check (distortion[1] > 2.0 * distortion[0] + 0.001, "Warmth adds harmonics to +1 octave ("
+                                                           + juce::String (100.0 * distortion[0], 2) + " % -> " + juce::String (100.0 * distortion[1], 2) + " %)");
+
+        auto down = makeInstance (sr, 256);
+        soloChannel (*down, "down1");
+        auto plain = playSine (*down, sr, f, 1.0, 0);
+        auto down2 = makeInstance (sr, 256);
+        soloChannel (*down2, "down1");
+        setParam (*down2, "warmth", 100.0f);
+        auto warm = playSine (*down2, sr, f, 1.0, 0);
+        double diff = 0.0;   // after 0.1 s, once the switched-off channels have faded out
+        for (size_t i = 4800; i < plain.size(); ++i) diff = std::max (diff, (double) std::abs (plain[i] - warm[i]));
+        check (diff < 1.0e-6, "Warmth leaves -1 octave untouched (max difference " + juce::String (diff, 8) + ")");
     }
 
     std::printf (failures == 0 ? "\nAll host tests passed.\n" : "\n%d host checks FAILED.\n", failures);

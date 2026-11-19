@@ -3,7 +3,7 @@
 #include "PluginProcessor.h"
 
 // Placeholder interface: a mixer strip per channel (on/off switch and a
-// vertical level slider), plus Detune, Swell and the Tracking mode.
+// vertical level slider), plus Detune, Swell, Warmth and the Tracking mode.
 // The real design comes later.
 class PuppyChowEditor final : public juce::AudioProcessorEditor
 {
@@ -35,7 +35,7 @@ private:
     PuppyChowProcessor& pluginProcessor;
 
     std::array<Strip, puppychow::numChannels> channelStrips;
-    Strip detuneStrip, swellStrip, outputStrip;
+    Strip detuneStrip, swellStrip, warmthStrip, outputStrip;
 
     juce::Label trackingLabel;
     juce::ComboBox trackingBox;

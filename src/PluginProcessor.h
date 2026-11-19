@@ -56,6 +56,7 @@ private:
     std::atomic<float>* detuneCents = nullptr;
     std::atomic<float>* swellMs = nullptr;
     std::atomic<float>* swellDry = nullptr;
+    std::atomic<float>* warmthPct = nullptr;
     std::atomic<float>* trackingMode = nullptr;
     std::atomic<float>* outputDb = nullptr;
 
@@ -63,6 +64,10 @@ private:
     std::array<juce::SmoothedValue<float>, puppychow::numChannels> gainsL, gainsR;
     juce::SmoothedValue<float> detuneMix;
     juce::SmoothedValue<float> outputGain;
+
+    // Warmth: amount (0..1, smoothed) and each channel's darkening filter state.
+    juce::SmoothedValue<float> warmthAmount;
+    std::array<float, puppychow::numChannels> warmthState {};
 
     // One engine per tracking mode, so switching never rebuilds anything on
     // the audio thread.

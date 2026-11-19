@@ -60,6 +60,7 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
     swellStrip.onButton.setColour (juce::ToggleButton::tickColourId, cream);
     addAndMakeVisible (swellStrip.onButton);
     swellStrip.buttonAttachment = std::make_unique<ButtonAttachment> (params, "swell_dry", swellStrip.onButton);
+    setUpSlider (warmthStrip, "Warmth", "warmth", " %");
     setUpSlider (outputStrip, "Output", "output", " dB");
 
     trackingLabel.setText ("Tracking", juce::dontSendNotification);
@@ -71,7 +72,7 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
     addAndMakeVisible (trackingBox);
     trackingAttachment = std::make_unique<ComboBoxAttachment> (params, "tracking", trackingBox);
 
-    setSize (2 * margin + stripWidth * (puppychow::numChannels + 3) + gapBeforeExtras, 470);
+    setSize (2 * margin + stripWidth * (puppychow::numChannels + 4) + gapBeforeExtras, 470);
 }
 
 void PuppyChowEditor::setUpSlider (Strip& strip, const juce::String& title, const juce::String& paramId, const juce::String& suffix)
@@ -137,5 +138,6 @@ void PuppyChowEditor::resized()
     area.removeFromLeft (gapBeforeExtras);
     layOut (detuneStrip, area.removeFromLeft (stripWidth), false);
     layOut (swellStrip, area.removeFromLeft (stripWidth), false);
+    layOut (warmthStrip, area.removeFromLeft (stripWidth), false);
     layOut (outputStrip, area.removeFromLeft (stripWidth), false);
 }

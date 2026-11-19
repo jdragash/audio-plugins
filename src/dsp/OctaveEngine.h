@@ -58,10 +58,11 @@ public:
         up2,            // two octaves up     (phase x 4)
         up1Detuned,
         up2Detuned,
+        overtones,      // "ghost partials": harmonics 7, 9, 11 and 13, blooming in (see below)
         numVoices
     };
 
-    static constexpr double voiceRatio[numVoices] = { 0.25, 0.5, 0.75, 1.5, 2.0, 3.0, 4.0, 2.0, 4.0 };
+    static constexpr double voiceRatio[numVoices] = { 0.25, 0.5, 0.75, 1.5, 2.0, 3.0, 4.0, 2.0, 4.0, 13.0 };
 
     // Narrower bands separate close notes better (cleaner low and dissonant
     // chords) but take longer to respond (the voices fade in more slowly).
@@ -122,6 +123,16 @@ public:
             gainOctFifth[k] = (3.0 * f < nyquistGuard) ? 1.0f : 0.0f;
             gainUp2[k]      = (4.0 * f < nyquistGuard) ? 1.0f : 0.0f;
 
+            // Overtones ("ghost partials"): the 7th, 9th, 11th and 13th
+            // harmonics of every note. Three of them fall between the notes of
+            // a piano (the 7th is a flat "blue" seventh, the 11th sits between
+            // a fourth and a tritone, the 13th near a flat sixth), so they add
+            // a shimmer no fretted note can make.
+            overW7[k]  = (7.0 * f < nyquistGuard)  ? overtoneWeight[0] : 0.0f;
+            overW9[k]  = (9.0 * f < nyquistGuard)  ? overtoneWeight[1] : 0.0f;
+            overW11[k] = (11.0 * f < nyquistGuard) ? overtoneWeight[2] : 0.0f;
+            overW13[k] = (13.0 * f < nyquistGuard) ? overtoneWeight[3] : 0.0f;
+
             f += t.spacing * width;
         }
 
@@ -129,6 +140,8 @@ public:
         for (int v = 0; v < numVoices; ++v)
             smoothing[(size_t) v].design (std::min (1.2 * (double) t.highestHz * voiceRatio[v], 0.45 * sampleRate), sampleRate);
         turnGlide = (float) (1.0 - std::exp (-1.0 / (turnGlideSeconds * sampleRate)));
+        bloomRise = (float) (1.0 - std::exp (-1.0 / (bloomRiseSeconds * sampleRate)));
+        bloomFall = (float) (1.0 - std::exp (-1.0 / (bloomFallSeconds * sampleRate)));
         detuneCents = -1.0f;
         setDetuneCents (0.0f);
         calibrate();
@@ -147,6 +160,7 @@ public:
         for (int st = 0; st < numStages; ++st)
             for (int k = 0; k < maxBands; ++k)
                 sRe[st][k] = sIm[st][k] = 0.0f;
+        for (auto& b : overBloom) b = 0.0f;
 
         for (int k = 0; k < maxBands + 2 * pad; ++k)
         {
@@ -199,15 +213,18 @@ public:
         const bool half = active[down1] || active[fifthUp];
         const bool quarter = active[down2] || active[fourthDown];
         const bool detune = active[up1Detuned] || active[up2Detuned];
+        const bool over = active[overtones];
 
         // Clear what a group left behind so a skipped voice is truly silent.
         if (needHalf && ! (half || quarter)) { clearVoice (down1); clearVoice (fifthUp); }
         if (needQuarter && ! quarter)        { clearVoice (down2); clearVoice (fourthDown); }
         if (needDetune && ! detune)          { clearVoice (up1Detuned); clearVoice (up2Detuned); }
+        if (needOvertones && ! over)         { clearVoice (overtones); }
 
         needHalf = half || quarter;   // the quarter phase is built from the half phase
         needQuarter = quarter;
         needDetune = detune;
+        needOvertones = over;
     }
 
     int getNumBands() const noexcept { return numBands; }
@@ -298,6 +315,42 @@ public:
                     oUp1[k] = gainUp1[k] * amp * c2;
                     oUp2[k] = gainUp2[k] * amp * (2.0f * c2 * c2 - 1.0f);         // x4: two octaves up
                     oOctFifth[k] = gainOctFifth[k] * amp * (4.0f * c * c * c - 3.0f * c); // x3
+                }
+            }
+
+            // Overtones: cos(n x phase) for odd n up to 13, built two steps at
+            // a time from the x2 phase: T(n+2) = 2 T2 T(n) - T(n-2). Each band's
+            // level "blooms": it rises over about 150 ms and falls quickly, so
+            // the partials grow out of a note instead of arriving with the pick.
+            if (needOvertones)
+            {
+                float* PUPPYCHOW_RESTRICT const oOver = outs_[overtones];
+                float* PUPPYCHOW_RESTRICT const bloom = overBloom;
+                const float* PUPPYCHOW_RESTRICT const cP = cosA;
+                const float* PUPPYCHOW_RESTRICT const c2P = cos2A;
+                const float* PUPPYCHOW_RESTRICT const aP = ampA;
+                const float* PUPPYCHOW_RESTRICT const w7 = overW7;
+                const float* PUPPYCHOW_RESTRICT const w9 = overW9;
+                const float* PUPPYCHOW_RESTRICT const w11 = overW11;
+                const float* PUPPYCHOW_RESTRICT const w13 = overW13;
+                const float rise = bloomRise, fall = bloomFall;
+
+                PUPPYCHOW_VECTORISE
+                for (int k = 0; k < nb; ++k)
+                {
+                    const float c = cP[k], t2x = 2.0f * c2P[k];
+                    const float t3 = (t2x - 1.0f) * c;            // T3 = (2 T2 - 1) c
+                    const float t5 = t2x * t3 - c;
+                    const float t7 = t2x * t5 - t3;
+                    const float t9 = t2x * t7 - t5;
+                    const float t11 = t2x * t9 - t7;
+                    const float t13 = t2x * t11 - t9;
+
+                    const float a = aP[k], b = bloom[k];
+                    float nb_ = b + (a > b ? rise : fall) * (a - b);
+                    nb_ = nb_ < 1.0e-12f ? 0.0f : nb_;
+                    bloom[k] = nb_;
+                    oOver[k] = nb_ * (w7[k] * t7 + w9[k] * t9 + w11[k] * t11 + w13[k] * t13);
                 }
             }
 
@@ -613,6 +666,11 @@ private:
     void calibrate()
     {
         for (auto& n : norm) n = 1.0f;
+
+        // Measure every voice, even ones switched off right now (a voice that
+        // was skipped here would get a huge level once switched on).
+        const bool keepHalf = needHalf, keepQuarter = needQuarter, keepDetune = needDetune, keepOver = needOvertones;
+        needHalf = needQuarter = needDetune = needOvertones = true;
         reset();
 
         const int total = (int) (0.8 * sr), settle = total / 2;
@@ -640,17 +698,24 @@ private:
         // A sine of amplitude 1 has an average power of one half.
         for (int v = 0; v < numVoices; ++v)
             norm[(size_t) v] = (float) (1.0 / std::max (std::sqrt (2.0 * power[v] / counted), 1.0e-6));
+
+        needHalf = keepHalf; needQuarter = keepQuarter; needDetune = keepDetune; needOvertones = keepOver;
     }
 
     double sr = 48000.0;
     int numBands = 0;
     int cur = 0;
     float turnGlide = 0.01f;   // per-sample glide factor for band rotations
-    bool needHalf = true, needQuarter = true, needDetune = true;
+    bool needHalf = true, needQuarter = true, needDetune = true, needOvertones = true;
     float detuneCents = -1.0f;
     std::array<float, numVoices> norm {};
 
     alignas (32) float poleRe[maxBands] {}, poleIm[maxBands] {}, inRe[maxBands] {}, inIm[maxBands] {};
+    static constexpr float overtoneWeight[4] = { 0.5f, 0.35f, 0.3f, 0.2f };   // harmonics 7, 9, 11, 13
+    static constexpr double bloomRiseSeconds = 0.15, bloomFallSeconds = 0.03;
+    float bloomRise = 0.0f, bloomFall = 0.0f;
+    alignas (32) float overW7[maxBands] {}, overW9[maxBands] {}, overW11[maxBands] {}, overW13[maxBands] {};
+    alignas (32) float overBloom[maxBands] {};
     alignas (32) float gainFifth[maxBands] {}, gainUp1[maxBands] {}, gainOctFifth[maxBands] {}, gainUp2[maxBands] {};
     alignas (32) float centreHz[maxBands] {}, detRotCos[maxBands] {}, detRotSin[maxBands] {};
     alignas (32) float sRe[numStages][maxBands] {}, sIm[numStages][maxBands] {};
