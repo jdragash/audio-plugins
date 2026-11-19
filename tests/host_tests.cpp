@@ -102,13 +102,109 @@ Result hissThenPluck (PuppyChowProcessor& p, double sr, int blockSize, float his
     return r;
 }
 
+std::unique_ptr<PuppyChowProcessor> makeInstance (double sr, int block, int channels = 2);
+
+// Stress test: random signals of every kind (near-silent hiss at many levels,
+// digital silence, hot clipped noise, full-scale squares, DC, single spikes,
+// tiny denormal values), random block sizes, and random parameter moves, all
+// at once. Every output sample must be a real number within full scale, and
+// a plucked note at the end must still come out (the plugin recovered).
+struct StressResult { long badSamples = 0; double peak = 0.0; double endRms = 0.0; };
+
+StressResult stress (double sr, int channels, double seconds, juce::uint32 seed)
+{
+    juce::Random rng ((juce::int64) seed);
+    auto p = makeInstance (sr, 4096, channels);
+    juce::AudioBuffer<float> buffer (channels, 4096);
+    juce::MidiBuffer midi;
+    StressResult r;
+
+    const long total = (long) (seconds * sr), pluckAt = total - (long) (1.5 * sr);
+    long pos = 0;
+    int kind = 0; long kindEnds = 0;
+    double level = 0.0, phase = 0.0, freq = 100.0;
+    double endSumSq = 0.0; long endCount = 0;
+    bool defaultsRestored = false;
+
+    while (pos < total)
+    {
+        // A new random signal every 50 ms to 1 s.
+        if (pos >= kindEnds)
+        {
+            kind = rng.nextInt (7);
+            kindEnds = pos + (long) ((0.05 + rng.nextDouble()) * sr);
+            level = std::pow (10.0, -10.0 * rng.nextDouble());      // 1 down to 1e-10
+            freq = 40.0 + 2000.0 * rng.nextDouble();
+        }
+
+        // Back to default settings for the final note, so it must be heard.
+        if (pos >= pluckAt && ! defaultsRestored)
+        {
+            for (auto* param : p->AudioProcessor::getParameters())
+                param->setValueNotifyingHost (param->getDefaultValue());
+            defaultsRestored = true;
+        }
+
+        // Random parameter moves, as automation would.
+        if (pos < pluckAt && rng.nextInt (8) == 0)
+        {
+            auto& params = p->AudioProcessor::getParameters();
+            auto* param = params[rng.nextInt (params.size())];
+            param->setValueNotifyingHost (rng.nextFloat());
+        }
+
+        const int n = (int) std::min<long> (1 + rng.nextInt (rng.nextBool() ? 64 : 4096), total - pos);
+        buffer.setSize (channels, n, false, false, true);
+        for (int i = 0; i < n; ++i)
+        {
+            const long t = pos + i;
+            double x = 0.0;
+            if (t >= pluckAt)
+            {
+                const double u = (double) (t - pluckAt) / sr;
+                x = 0.3 * std::exp (-2.0 * u) * std::sin (2.0 * juce::MathConstants<double>::pi * 110.0 * u);
+            }
+            else
+            {
+                phase += freq / sr;
+                switch (kind)
+                {
+                    case 0: x = level * (2.0 * rng.nextDouble() - 1.0); break;                       // hiss at any level
+                    case 1: x = 0.0; break;                                                          // digital silence
+                    case 2: x = juce::jlimit (-1.0, 1.0, 4.0 * (2.0 * rng.nextDouble() - 1.0)); break; // hot clipped noise
+                    case 3: x = std::fmod (phase, 1.0) < 0.5 ? 1.0 : -1.0; break;                    // full-scale square
+                    case 4: x = 0.5 * level + 0.2; break;                                            // DC offset
+                    case 5: x = rng.nextInt (2000) == 0 ? 1.0 : 0.0; break;                          // lone spikes
+                    default: x = (rng.nextBool() ? 1.0 : -1.0) * 1.0e-39 * rng.nextDouble(); break;  // denormals
+                }
+            }
+            for (int ch = 0; ch < channels; ++ch)
+                buffer.setSample (ch, i, (float) x);
+        }
+
+        p->processBlock (buffer, midi);
+
+        for (int ch = 0; ch < channels; ++ch)
+            for (int i = 0; i < n; ++i)
+            {
+                const float y = buffer.getSample (ch, i);
+                if (! std::isfinite (y)) { ++r.badSamples; continue; }
+                r.peak = std::max (r.peak, (double) std::abs (y));
+                if (pos + i >= pluckAt) { endSumSq += (double) y * y; ++endCount; }
+            }
+        pos += n;
+    }
+    r.endRms = std::sqrt (endSumSq / std::max (1L, endCount));
+    return r;
+}
+
 void setParam (PuppyChowProcessor& p, const juce::String& id, float value)
 {
     if (auto* param = p.getParameters().getParameter (id))
         param->setValueNotifyingHost (param->convertTo0to1 (value));
 }
 
-std::unique_ptr<PuppyChowProcessor> makeInstance (double sr, int block, int channels = 2)
+std::unique_ptr<PuppyChowProcessor> makeInstance (double sr, int block, int channels)
 {
     auto p = std::make_unique<PuppyChowProcessor>();
     auto layout = p->getBusesLayout();
@@ -128,9 +224,15 @@ void expectGood (const Result& r, const juce::String& what)
 }
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juce;
+
+    // --stress <minutes>: run only the stress test, for that long in total.
+    double stressMinutes = 0.0;
+    for (int i = 1; i + 1 < argc; ++i)
+        if (juce::String (argv[i]) == "--stress")
+            stressMinutes = juce::String (argv[i + 1]).getDoubleValue();
 
     // 1. One instance, default settings.
     {
@@ -221,6 +323,26 @@ int main()
             expectGood (hissThenPluck (*a, 48000.0, 128, hiss),
                         "hiss at " + juce::String (hiss) + " then a note, tracking mode " + juce::String (mode));
         }
+
+    // 7. Stress test (see stress()). Short in the normal run; --stress runs it
+    //    for as many minutes as asked.
+    {
+        const bool longRun = stressMinutes > 0.0;
+        const double rates[] = { 44100.0, 48000.0, 88200.0, 96000.0 };
+        const double runSeconds = longRun ? 60.0 : 8.0;
+        const int runs = longRun ? juce::jmax (1, (int) (stressMinutes * 60.0 / runSeconds + 0.5)) : 4;
+        for (int k = 0; k < runs; ++k)
+        {
+            const double sr = rates[k % 4];
+            const int channels = (k / 4) % 2 == 0 ? 2 : 1;
+            const auto r = stress (sr, channels, runSeconds, 1000u + (juce::uint32) k);
+            const juce::String what = "stress run " + juce::String (k + 1) + " (" + juce::String (sr / 1000.0) + " kHz, "
+                                    + (channels == 2 ? "stereo" : "mono") + ", " + juce::String (runSeconds, 0) + " s)";
+            check (r.badSamples == 0, what + ": no NaN/inf (" + juce::String (r.badSamples) + " bad samples)");
+            check (r.peak <= 1.0001, what + ": within full scale (peak " + juce::String (r.peak, 3) + ")");
+            check (r.endRms > 0.005, what + ": a note afterwards still comes out (rms " + juce::String (r.endRms, 4) + ")");
+        }
+    }
 
     std::printf (failures == 0 ? "\nAll host tests passed.\n" : "\n%d host checks FAILED.\n", failures);
     return failures == 0 ? 0 : 1;
