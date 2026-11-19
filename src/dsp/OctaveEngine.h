@@ -269,8 +269,15 @@ public:
             // Unit phase (cos, sin) and sharpened amplitude of each band.
             for (int k = 0; k < nb; ++k)
             {
-                const float inv = 1.0f / (mag[k] + 1.0e-30f);
-                cosA[k] = bandRe[k] * inv;
+                // A band that has faded to (almost) nothing gets a plain unit
+                // phase and no level. This must not divide by its tiny level:
+                // with denormals flushed to zero (as in every DAW), the squares
+                // in mag underflow to 0 while the band itself is still around
+                // 1e-20, so "unit" phases came out huge, overflowed in the x4
+                // voice and turned into NaN, silencing the whole output.
+                const bool live = mag[k] > 1.0e-15f;
+                const float inv = live ? 1.0f / mag[k] : 0.0f;
+                cosA[k] = live ? bandRe[k] * inv : 1.0f;
                 sinA[k] = bandIm[k] * inv;
                 float rel = mag[k] / (peakMag[k] + 1.0e-30f);
                 rel *= rel; rel *= rel;

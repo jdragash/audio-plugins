@@ -14,4 +14,7 @@ First tagged version. Everything built so far:
 - Detune (12-string shimmer on the octave-up voices), Swell (voices fade in after each
   pick), Tracking mode (Tight, Balanced, Clean) and Output level with a safety limiter.
 - Fixed crackle on low notes and strums.
+- Fixed the plugin going silent (and silencing the track) when the input was nearly silent
+  between notes, which could also make plugins after it, like Mastering Assistant, blast
+  loud digital noise. The output can no longer carry invalid values.
 - Builds as Audio Unit, VST3 and standalone app for macOS (Apple Silicon and Intel).

@@ -60,6 +60,48 @@ Result play (PuppyChowProcessor& p, double sr, int blockSize, double seconds, in
     return r;
 }
 
+// Very quiet hiss (what a monitored guitar input sends between notes), then a
+// plucked chord. Returns the result of the part after the pluck, and whether
+// anything at all was not a real number.
+Result hissThenPluck (PuppyChowProcessor& p, double sr, int blockSize, float hissLevel)
+{
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::MidiBuffer midi;
+    juce::Random rng (1234);
+    Result r;
+    double sumSq = 0.0; long count = 0;
+    const long pluckAt = (long) (2.0 * sr), total = (long) (4.0 * sr);
+
+    for (long pos = 0; pos < total; pos += blockSize)
+    {
+        for (int i = 0; i < blockSize; ++i)
+        {
+            const long n = pos + i;
+            double x = hissLevel * (2.0 * rng.nextDouble() - 1.0);
+            if (n >= pluckAt)
+            {
+                const double t = (double) (n - pluckAt) / sr;
+                x += 0.3 * std::exp (-2.0 * t) * std::sin (2.0 * juce::MathConstants<double>::pi * 82.41 * t);
+            }
+            for (int ch = 0; ch < 2; ++ch)
+                buffer.setSample (ch, i, (float) x);
+        }
+
+        p.processBlock (buffer, midi);
+
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float s = buffer.getSample (ch, i);
+                if (! std::isfinite (s)) { r.finite = false; continue; }
+                r.peak = std::max (r.peak, (double) std::abs (s));
+                if (pos + i >= pluckAt) { sumSq += (double) s * s; ++count; }
+            }
+    }
+    r.rms = std::sqrt (sumSq / std::max (1L, count));
+    return r;
+}
+
 void setParam (PuppyChowProcessor& p, const juce::String& id, float value)
 {
     if (auto* param = p.getParameters().getParameter (id))
@@ -163,6 +205,22 @@ int main()
         a->processBlock (empty, midi);
         expectGood (play (*a, 48000.0, 256, 2.0), "after an empty block");
     }
+
+    // 6. Very quiet input, then a note. With denormals flushed to zero (as in
+    //    every DAW) hiss around -120 dBFS used to turn the output into NaN,
+    //    which silenced the whole track, and Logic's output with it, until the
+    //    plugin was bypassed.
+    for (float hiss : { 1.0e-5f, 1.0e-6f, 1.0e-7f, 1.0e-8f, 0.0f })
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto a = makeInstance (48000.0, 128);
+            for (const auto& ch : puppychow::channels)
+                setParam (*a, juce::String (ch.id) + "_on", 1.0f);
+            setParam (*a, "detune", 12.0f);
+            setParam (*a, "tracking", (float) mode);
+            expectGood (hissThenPluck (*a, 48000.0, 128, hiss),
+                        "hiss at " + juce::String (hiss) + " then a note, tracking mode " + juce::String (mode));
+        }
 
     std::printf (failures == 0 ? "\nAll host tests passed.\n" : "\n%d host checks FAILED.\n", failures);
     return failures == 0 ? 0 : 1;
