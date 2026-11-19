@@ -344,6 +344,45 @@ int main (int argc, char** argv)
         }
     }
 
+    // 8. Swell Dry: with it on, the dry guitar fades in after a pick too;
+    //    with it off, the dry guitar is at full level straight away.
+    for (bool swellDryOn : { false, true })
+    {
+        auto a = makeInstance (48000.0, 256);
+        for (const auto& ch : puppychow::channels)
+            setParam (*a, juce::String (ch.id) + "_on", juce::String (ch.id) == "dry" ? 1.0f : 0.0f);
+        setParam (*a, "swell", 500.0f);
+        setParam (*a, "swell_dry", swellDryOn ? 1.0f : 0.0f);
+
+        // 0.5 s of silence, then a steady note. Compare 10 to 40 ms in with 0.6 s later.
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        double early = 0.0, late = 0.0;
+        const long noteAt = 24000;
+        for (long pos = 0; pos < 96000; pos += 256)
+        {
+            for (int i = 0; i < 256; ++i)
+            {
+                const long n = pos + i;
+                const float x = n >= noteAt ? 0.3f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 110.0 * (double) n / 48000.0) : 0.0f;
+                buffer.setSample (0, i, x); buffer.setSample (1, i, x);
+            }
+            a->processBlock (buffer, midi);
+            for (int i = 0; i < 256; ++i)
+            {
+                const long n = pos + i - noteAt;
+                const double y = buffer.getSample (0, i);
+                if (n >= 480 && n < 1920) early += y * y;   // 10 to 40 ms after the pick
+                if (n >= 28800 && n < 30240) late += y * y;
+            }
+        }
+        const double ratioDb = 10.0 * std::log10 ((early + 1.0e-20) / (late + 1.0e-20));
+        if (swellDryOn)
+            check (ratioDb < -12.0, "Swell Dry on: dry starts quiet after a pick (" + juce::String (ratioDb, 1) + " dB vs later)");
+        else
+            check (std::abs (ratioDb) < 1.0, "Swell Dry off: dry is at full level right away (" + juce::String (ratioDb, 1) + " dB vs later)");
+    }
+
     std::printf (failures == 0 ? "\nAll host tests passed.\n" : "\n%d host checks FAILED.\n", failures);
     return failures == 0 ? 0 : 1;
 }

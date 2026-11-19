@@ -4,6 +4,11 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
+## Unreleased
+
+- Swell has a Dry switch: when on, the dry guitar swells in after each pick too, not just
+  the voices.
+
 ## 0.1.0 (2026-11-18)
 
 First tagged version. Everything built so far:

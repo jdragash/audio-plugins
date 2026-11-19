@@ -52,6 +52,14 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
 
     setUpSlider (detuneStrip, "Detune", "detune", " ct");
     setUpSlider (swellStrip, "Swell", "swell", " ms");
+
+    // Swell's switch decides whether the dry guitar swells too.
+    swellStrip.onButton.setButtonText ("Dry");
+    swellStrip.onButton.setTooltip ("Swell the dry guitar too, not just the voices");
+    swellStrip.onButton.setColour (juce::ToggleButton::textColourId, cream);
+    swellStrip.onButton.setColour (juce::ToggleButton::tickColourId, cream);
+    addAndMakeVisible (swellStrip.onButton);
+    swellStrip.buttonAttachment = std::make_unique<ButtonAttachment> (params, "swell_dry", swellStrip.onButton);
     setUpSlider (outputStrip, "Output", "output", " dB");
 
     trackingLabel.setText ("Tracking", juce::dontSendNotification);
@@ -110,17 +118,16 @@ void PuppyChowEditor::resized()
 
     auto area = getLocalBounds().withTrimmedTop (headerHeight).reduced (margin, 0).withTrimmedBottom (margin);
 
-    auto layOut = [] (Strip& strip, juce::Rectangle<int> column, bool hasButton)
+    auto layOut = [] (Strip& strip, juce::Rectangle<int> column, bool hasPan)
     {
         column = column.reduced (4, 6);
         strip.title.setBounds (column.removeFromTop (22));
         auto buttonRow = column.removeFromTop (26);
         auto panRow = column.removeFromTop (70);
-        if (hasButton)
-        {
+        if (strip.onButton.isVisible())
             strip.onButton.setBounds (buttonRow.withSizeKeepingCentre (56, 24));
+        if (hasPan)
             strip.pan.setBounds (panRow.withSizeKeepingCentre (stripWidth - 8, 66));
-        }
         strip.slider.setBounds (column);
     };
 
