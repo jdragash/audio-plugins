@@ -4,6 +4,11 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
+## 0.2.1 (unreleased)
+
+- Neutral blue-gray colors with more contrast instead of brown (still a placeholder
+  until the real interface design).
+
 ## 0.2.0 (2026-11-20)
 
 - Overtones channel ("ghost partials"): the 7th, 9th, 11th and 13th harmonics of whatever
