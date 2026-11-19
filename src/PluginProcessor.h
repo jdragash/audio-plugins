@@ -55,6 +55,7 @@ private:
     std::array<std::atomic<float>*, puppychow::numChannels> channelPan {};
     std::atomic<float>* detuneCents = nullptr;
     std::atomic<float>* swellMs = nullptr;
+    std::atomic<float>* swellDry = nullptr;
     std::atomic<float>* trackingMode = nullptr;
     std::atomic<float>* outputDb = nullptr;
 
@@ -69,7 +70,7 @@ private:
     std::array<puppychow::OctaveEngine, numTrackingModes> engines;
     int activeEngine = -1;
 
-    // Swell: fades the voices in after each new note is picked.
+    // Swell: fades the voices (and optionally the dry guitar) in after each new note is picked.
     double sampleRateHz = 48000.0;
     float fastEnv = 0.0f, slowEnv = 0.0f, swellRamp = 1.0f, swellGain = 1.0f;
     int samplesSinceOnset = 0;

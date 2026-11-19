@@ -20,6 +20,7 @@ PuppyChowProcessor::PuppyChowProcessor()
 
     detuneCents = parameters.getRawParameterValue ("detune");
     swellMs = parameters.getRawParameterValue ("swell");
+    swellDry = parameters.getRawParameterValue ("swell_dry");
     trackingMode = parameters.getRawParameterValue ("tracking");
     outputDb = parameters.getRawParameterValue ("output");
 }
@@ -85,6 +86,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
         juce::ParameterID { "swell", 1 }, "Swell",
         juce::NormalisableRange<float> (0.0f, puppychow::maxSwellMs, 1.0f, 0.5f), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel ("ms")));
+
+    // Off: Swell fades in only the voices. On: the dry guitar swells too,
+    // like a volume pedal rolled up after every pick.
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { "swell_dry", 1 }, "Swell Dry", false));
 
     layout.add (std::make_unique<juce::AudioParameterChoice> (
         juce::ParameterID { "tracking", 1 }, "Tracking",
@@ -224,6 +230,7 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     // Swell settings.
     const float swellTimeMs = swellMs->load();
     const bool swellOn = swellTimeMs >= 1.0f;
+    const bool swellTheDry = swellDry->load() >= 0.5f;
     const float swellStep = swellOn ? (float) (1000.0 / (swellTimeMs * sampleRateHz)) : 1.0f;
     const float fastRelease = (float) std::exp (-1.0 / (0.020 * sampleRateHz));
     const float slowCoeff = (float) std::exp (-1.0 / (0.080 * sampleRateHz));
@@ -255,7 +262,28 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 mono[i] += src[i] * inScale;
         }
 
+        // Bad input values (NaN or infinity) would get stuck in the filters.
+        for (int i = 0; i < n; ++i)
+            mono[i] = std::isfinite (mono[i]) ? mono[i] : 0.0f;
+
         engine.process (mono, voicePtrs, n);
+
+        // Safety net: if the voices ever stop being real numbers, start the
+        // engine and the high-pass afresh and drop this chunk of voices, so a
+        // single bad value can never silence the plugin (and the whole track
+        // after it) until it is bypassed.
+        float check = 0.0f;
+        for (int v = 0; v < numVoices; ++v)
+            for (int i = 0; i < n; ++i)
+                check += voices[v][i] * 0.0f;
+        if (! std::isfinite (check) || ! std::isfinite (wetHighpassStateL) || ! std::isfinite (wetHighpassStateR))
+        {
+            engine.reset();
+            for (int v = 0; v < numVoices; ++v)
+                for (int i = 0; i < n; ++i)
+                    voices[v][i] = 0.0f;
+            wetHighpassStateL = wetHighpassStateR = 0.0f;
+        }
 
         for (int i = 0; i < n; ++i)
         {
@@ -303,6 +331,11 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             swellGain = swellRamp + gainSmooth * (swellGain - swellRamp);
             wetL *= swellGain;
             wetR *= swellGain;
+            if (swellTheDry)
+            {
+                dryL *= swellGain;
+                dryR *= swellGain;
+            }
 
             // One-pole high-pass: subtract a slow-moving average.
             wetHighpassStateL = wetL + wetHighpassCoeff * (wetHighpassStateL - wetL);
@@ -317,7 +350,8 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             {
                 float* dst = buffer.getWritePointer (ch, start);
                 const bool right = ch == 1;
-                dst[i] = softLimit ((dst[i] * (right ? dryR : dryL) + (right ? wetR : wetL)) * out);
+                const float y = softLimit ((dst[i] * (right ? dryR : dryL) + (right ? wetR : wetL)) * out);
+                dst[i] = std::isfinite (y) ? y : 0.0f;   // never pass a bad value down the chain
             }
         }
     }

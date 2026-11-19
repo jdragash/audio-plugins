@@ -17,6 +17,7 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
   mono. On a stereo input the Dry pan works as a balance control.
 - **Detune** adds slightly sharp copies of the two octave-up voices for a 12-string shimmer.
 - **Swell** fades the voices in after each picked note, like a volume swell or a bowed string.
+  Its **Dry** switch makes the dry guitar swell too.
 - **Output** sets the overall level. A gentle limiter rounds off peaks above about -2 dBFS so
   stacked voices on a hard strum never overload whatever comes next.
 - **Tracking** trades speed for cleanliness. *Tight* responds fastest, *Clean* keeps low and
@@ -61,9 +62,24 @@ auval -v aufx Pchw Jdrg
 
 ## Getting a build without compiling
 
-Every push to `main` builds the plugin on GitHub Actions, runs the engine tests, and validates
+Every push to `main` and every pull request builds the plugin on GitHub Actions, runs the engine tests, and validates
 it with `auval` and `pluginval`. Download the `PuppyChow-macOS` artifact from the latest run on
 the Actions tab. Those builds are not code-signed, so macOS may block them the first time; run
 `xattr -dr com.apple.quarantine "Puppy Chow.component"` after copying it in.
+
+## Versions and testing
+
+Each version is listed in [CHANGELOG.md](CHANGELOG.md), and the version number shows in the plugin
+window. Finished, tested versions are on the [Releases](https://github.com/jdragash/puppy-chow/releases)
+page as a zip with the Audio Unit, VST3 and standalone app.
+
+How a change gets there:
+
+1. New work goes on its own branch, never straight to `main`. GitHub builds and checks every
+   branch, but nothing on a branch is a release.
+2. That branch is built and installed on Jake's Mac so he can play it.
+3. Only once Jake says it's good: the branch is merged into `main`, the version number is
+   raised in `CMakeLists.txt` and `CHANGELOG.md`, and a `vX.Y.Z` tag is pushed. The tag
+   builds the release automatically.
 
 Built with [JUCE](https://juce.com).

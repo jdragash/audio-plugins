@@ -14,6 +14,23 @@
 #include <string>
 #include <vector>
 
+#if defined (__x86_64__) || defined (_M_X64)
+ #include <xmmintrin.h>
+#endif
+
+// DAWs (and the plugin itself) run audio with denormals flushed to zero, which
+// changes how tiny numbers behave. Test the engine the same way.
+static void flushDenormalsToZero()
+{
+#if defined (__x86_64__) || defined (_M_X64)
+    _mm_setcsr (_mm_getcsr() | 0x8040);   // FTZ and DAZ
+#elif defined (__aarch64__)
+    unsigned long fpcr;
+    asm volatile ("mrs %0, fpcr" : "=r" (fpcr));
+    asm volatile ("msr fpcr, %0" : : "r" (fpcr | (1ul << 24)));   // FZ
+#endif
+}
+
 using puppychow::OctaveEngine;
 
 namespace
@@ -312,6 +329,7 @@ void testCpu (OctaveEngine& e, double sr)
 
 int main (int argc, char** argv)
 {
+    flushDenormalsToZero();
     report = argc > 1 && (std::strcmp (argv[1], "--report") == 0 || std::strcmp (argv[1], "--tune") == 0);
 
     for (double sr : { 44100.0, 48000.0, 96000.0 })
