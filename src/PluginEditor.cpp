@@ -29,6 +29,17 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
         addAndMakeVisible (strip.onButton);
         strip.buttonAttachment = std::make_unique<ButtonAttachment> (params, juce::String (ch.id) + "_on", strip.onButton);
 
+        // Solo: hear only this channel (and any other soloed ones).
+        strip.soloButton.setButtonText ("S");
+        strip.soloButton.setTooltip ("Solo: hear only this channel");
+        strip.soloButton.setClickingTogglesState (true);
+        strip.soloButton.setColour (juce::TextButton::buttonColourId, panel);
+        strip.soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe8b04a));
+        strip.soloButton.setColour (juce::TextButton::textColourOffId, cream);
+        strip.soloButton.setColour (juce::TextButton::textColourOnId, background);
+        addAndMakeVisible (strip.soloButton);
+        strip.soloAttachment = std::make_unique<ButtonAttachment> (params, juce::String (ch.id) + "_solo", strip.soloButton);
+
         // Small pan knob. Double-click returns it to the centre.
         strip.pan.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         strip.pan.setTextBoxStyle (juce::Slider::TextBoxBelow, false, stripWidth - 12, 16);
@@ -125,7 +136,12 @@ void PuppyChowEditor::resized()
         strip.title.setBounds (column.removeFromTop (22));
         auto buttonRow = column.removeFromTop (26);
         auto panRow = column.removeFromTop (70);
-        if (strip.onButton.isVisible())
+        if (strip.soloButton.isVisible())
+        {
+            strip.soloButton.setBounds (buttonRow.removeFromRight (24).withSizeKeepingCentre (22, 20));
+            strip.onButton.setBounds (buttonRow.withSizeKeepingCentre (44, 24));
+        }
+        else if (strip.onButton.isVisible())
             strip.onButton.setBounds (buttonRow.withSizeKeepingCentre (56, 24));
         if (hasPan)
             strip.pan.setBounds (panRow.withSizeKeepingCentre (stripWidth - 8, 66));

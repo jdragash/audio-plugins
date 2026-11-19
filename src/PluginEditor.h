@@ -23,11 +23,13 @@ private:
     {
         juce::Label title;
         juce::ToggleButton onButton;
+        juce::TextButton soloButton;
         juce::Slider slider;
         juce::Slider pan;
         std::unique_ptr<SliderAttachment> panAttachment;
         std::unique_ptr<SliderAttachment> sliderAttachment;
         std::unique_ptr<ButtonAttachment> buttonAttachment;
+        std::unique_ptr<ButtonAttachment> soloAttachment;
     };
 
     void setUpSlider (Strip&, const juce::String& title, const juce::String& paramId, const juce::String& suffix);

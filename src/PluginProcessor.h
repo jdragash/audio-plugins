@@ -53,6 +53,7 @@ private:
     std::array<std::atomic<float>*, puppychow::numChannels> levelDb {};
     std::array<std::atomic<float>*, puppychow::numChannels> channelOn {};
     std::array<std::atomic<float>*, puppychow::numChannels> channelPan {};
+    std::array<std::atomic<float>*, puppychow::numChannels> channelSolo {};
     std::atomic<float>* detuneCents = nullptr;
     std::atomic<float>* swellMs = nullptr;
     std::atomic<float>* swellDry = nullptr;

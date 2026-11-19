@@ -9,7 +9,7 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ![Placeholder interface](docs/interface.png)
 
-- **Nine channels**, each with an on/off switch, a pan knob and a level slider: two octaves down, one
+- **Nine channels**, each with an on/off switch, a solo button, a pan knob and a level slider: two octaves down, one
   octave down, a fourth down, Dry, a fifth up, one octave up, an octave plus a fifth up,
   two octaves up, and Overtones.
 - **Overtones** ("ghost partials") adds the 7th, 9th, 11th and 13th harmonics of what you play.

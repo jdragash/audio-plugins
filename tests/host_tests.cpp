@@ -487,6 +487,18 @@ int main (int argc, char** argv)
         check (diff < 1.0e-6, "Warmth leaves -1 octave untouched (max difference " + juce::String (diff, 8) + ")");
     }
 
+    // 11. Solo: only soloed channels play, even one that is switched off.
+    {
+        const double sr = 48000.0, f = 220.0;
+        auto a = makeInstance (sr, 256);   // defaults: -1 Oct, Dry and +1 Oct on
+        setParam (*a, "up2_solo", 1.0f);   // +2 Oct is off, but soloed
+        const auto out = playSine (*a, sr, f, 1.5, 0);
+        std::vector<float> steady (out.begin() + 36000, out.end());
+        const double total = meanPower (steady, 0, steady.size()) * 2.0;
+        const double up2 = tonePower (steady, 4.0 * f, sr);
+        check (total > 1.0e-4 && up2 > 0.9 * total, "Solo +2 Oct: only +2 Oct is heard (" + juce::String (100.0 * up2 / (total + 1e-20), 0) + " % of the output)");
+    }
+
     std::printf (failures == 0 ? "\nAll host tests passed.\n" : "\n%d host checks FAILED.\n", failures);
     return failures == 0 ? 0 : 1;
 }

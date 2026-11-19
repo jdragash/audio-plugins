@@ -16,6 +16,7 @@ PuppyChowProcessor::PuppyChowProcessor()
         levelDb[i] = parameters.getRawParameterValue (channels[i].id);
         channelOn[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_on");
         channelPan[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_pan");
+        channelSolo[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_solo");
     }
 
     detuneCents = parameters.getRawParameterValue ("detune");
@@ -57,6 +58,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
 
         layout.add (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { juce::String (ch.id) + "_on", 1 }, juce::String (ch.name) + " On", ch.defaultOn));
+
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { juce::String (ch.id) + "_solo", 1 }, juce::String (ch.name) + " Solo", false));
 
         // Pan: -100 is hard left, 0 centre, +100 hard right.
         layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -116,7 +120,12 @@ float PuppyChowProcessor::channelTargetGain (int channel) const noexcept
 {
     const auto i = (size_t) channel;
     const float dbValue = levelDb[i]->load();
-    const bool on = channelOn[i]->load() > 0.5f;
+    // Solo: while any channel is soloed, only soloed channels play (even ones
+    // switched off, so you can hear what a channel would add).
+    bool anySolo = false;
+    for (auto* solo : channelSolo)
+        anySolo = anySolo || solo->load() > 0.5f;
+    const bool on = anySolo ? channelSolo[i]->load() > 0.5f : channelOn[i]->load() > 0.5f;
     return (! on || dbValue <= puppychow::minLevelDb + 0.05f) ? 0.0f : juce::Decibels::decibelsToGain (dbValue);
 }
 

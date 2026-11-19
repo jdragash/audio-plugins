@@ -13,6 +13,8 @@ between 0.x versions.
 - Warmth control (0 to 100 %): soft, slightly lopsided tape-style saturation and a darker
   top on the voices above the dry guitar, so they sound less digital. The voices below
   are left alone.
+- Solo (S) button on every channel: while any channel is soloed, only soloed channels play,
+  even ones that are switched off.
 - Fixed a voice that was switched off when the plugin was (re)started coming back far too
   loud when switched on.
 
