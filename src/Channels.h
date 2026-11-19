@@ -2,7 +2,7 @@
 
 #include "dsp/OctaveEngine.h"
 
-// The eight mixer channels, in the order they appear on screen (lowest pitch
+// The mixer channels, in the order they appear on screen (lowest pitch
 // on the left). engineVoice is -1 for Dry, which bypasses the engine.
 namespace puppychow
 {
@@ -16,7 +16,7 @@ namespace puppychow
         bool defaultOn;
     };
 
-    inline constexpr int numChannels = 8;
+    inline constexpr int numChannels = 9;
     inline constexpr int dryChannel = 3;
 
     inline constexpr Channel channels[numChannels] = {
@@ -28,10 +28,15 @@ namespace puppychow
         { "up1",      "+1 Octave",         "+1 Oct",   OctaveEngine::up1,        -6.0f, true  },
         { "octfifth", "+1 Octave +5th",    "+Oct 5th", OctaveEngine::octFifthUp, -6.0f, false },
         { "up2",      "+2 Octaves",        "+2 Oct",   OctaveEngine::up2,        -6.0f, false },
+        { "overtones","Overtones",         "Overtones",OctaveEngine::overtones, -12.0f, false },
     };
 
     inline constexpr float minLevelDb = -60.0f;   // bottom of a level slider is silent
     inline constexpr float maxDetuneCents = 30.0f;
     inline constexpr float maxSwellMs = 1000.0f;
+
+    // Warmth (0 to 100 %) works on the channels above the dry guitar: they sound
+    // the most "digital", so they get soft tape-style saturation and a darker top.
+    inline constexpr bool isWarmable (int channel) { return channel > dryChannel; }
     inline constexpr float minOutputDb = -24.0f, maxOutputDb = 6.0f;
 }

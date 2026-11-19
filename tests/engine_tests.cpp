@@ -40,7 +40,8 @@ const int numVoices = OctaveEngine::numVoices;
 const int numPlainVoices = OctaveEngine::up1Detuned; // everything except the detuned copies
 const double* const voiceRatio = OctaveEngine::voiceRatio;
 const char* voiceName[numVoices] = { "2 oct down", "1 oct down", "4th down", "5th up", "1 oct up", "oct+5th up", "2 oct up",
-                                     "1 oct up detuned", "2 oct up detuned" };
+                                     "1 oct up detuned", "2 oct up detuned", "overtones" };
+const int endOfDetuned = OctaveEngine::overtones;   // overtones are tested in host_tests.cpp
 
 bool report = false;
 int failures = 0;
@@ -178,7 +179,7 @@ void testPitches (OctaveEngine& e, double sr, const char* name, const std::vecto
     const double inPower = analyse (in, sr).total();
     const bool detuned = pitchScaleForDetuned > 0.0;
 
-    for (int v = detuned ? numPlainVoices : 0; v < (detuned ? numVoices : numPlainVoices); ++v)
+    for (int v = detuned ? numPlainVoices : 0; v < (detuned ? endOfDetuned : numPlainVoices); ++v)
     {
         const auto spec = analyse (out.v[v], sr);
         const double total = spec.total();

@@ -16,11 +16,13 @@ PuppyChowProcessor::PuppyChowProcessor()
         levelDb[i] = parameters.getRawParameterValue (channels[i].id);
         channelOn[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_on");
         channelPan[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_pan");
+        channelSolo[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_solo");
     }
 
     detuneCents = parameters.getRawParameterValue ("detune");
     swellMs = parameters.getRawParameterValue ("swell");
     swellDry = parameters.getRawParameterValue ("swell_dry");
+    warmthPct = parameters.getRawParameterValue ("warmth");
     trackingMode = parameters.getRawParameterValue ("tracking");
     outputDb = parameters.getRawParameterValue ("output");
 }
@@ -57,6 +59,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
         layout.add (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { juce::String (ch.id) + "_on", 1 }, juce::String (ch.name) + " On", ch.defaultOn));
 
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { juce::String (ch.id) + "_solo", 1 }, juce::String (ch.name) + " Solo", false));
+
         // Pan: -100 is hard left, 0 centre, +100 hard right.
         layout.add (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { juce::String (ch.id) + "_pan", 1 }, juce::String (ch.name) + " Pan",
@@ -92,6 +97,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
     layout.add (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { "swell_dry", 1 }, "Swell Dry", false));
 
+    // Warmth makes the voices above the dry guitar less "digital": soft,
+    // slightly lopsided saturation (like tape or a tube) and a darker top.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "warmth", 1 }, "Warmth",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("%")));
+
     layout.add (std::make_unique<juce::AudioParameterChoice> (
         juce::ParameterID { "tracking", 1 }, "Tracking",
         juce::StringArray { "Tight", "Balanced", "Clean" }, 2));
@@ -108,7 +120,12 @@ float PuppyChowProcessor::channelTargetGain (int channel) const noexcept
 {
     const auto i = (size_t) channel;
     const float dbValue = levelDb[i]->load();
-    const bool on = channelOn[i]->load() > 0.5f;
+    // Solo: while any channel is soloed, only soloed channels play (even ones
+    // switched off, so you can hear what a channel would add).
+    bool anySolo = false;
+    for (auto* solo : channelSolo)
+        anySolo = anySolo || solo->load() > 0.5f;
+    const bool on = anySolo ? channelSolo[i]->load() > 0.5f : channelOn[i]->load() > 0.5f;
     return (! on || dbValue <= puppychow::minLevelDb + 0.05f) ? 0.0f : juce::Decibels::decibelsToGain (dbValue);
 }
 
@@ -147,6 +164,10 @@ void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
 
     outputGain.reset (sampleRate, 0.02);
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputDb->load()));
+
+    warmthAmount.reset (sampleRate, 0.05);
+    warmthAmount.setCurrentAndTargetValue (warmthPct->load() / 100.0f);
+    warmthState.fill (0.0f);
 
     detuneMix.reset (sampleRate, 0.05);
     detuneMix.setCurrentAndTargetValue (juce::jlimit (0.0f, 1.0f, detuneCents->load() / 3.0f));
@@ -217,6 +238,7 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     }
 
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputDb->load()));
+    warmthAmount.setTargetValue (juce::jlimit (0.0f, 1.0f, warmthPct->load() / 100.0f));
 
     const float cents = detuneCents->load();
     engine.setDetuneCents (cents);
@@ -268,6 +290,19 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
         engine.process (mono, voicePtrs, n);
 
+        // Warmth settings for this chunk.
+        const float warmth = warmthAmount.getNextValue();
+        warmthAmount.skip (n - 1);
+        const bool warmOn = warmth > 1.0e-3f;
+        const float drive = 1.0f + 9.0f * warmth;          // how hard the saturation is pushed
+        const float bias = 0.2f * warmth;                   // lopsided: adds even harmonics, like tape or a tube
+        const float tanhBias = std::tanh (bias);
+        // Quiet signals keep their level; the makeup gain wins back what the
+        // saturation squashes on louder playing.
+        const float unity = (float) std::pow (1.8, (double) warmth) / (drive * (1.0f - tanhBias * tanhBias));
+        const float darkHz = (float) juce::jmin (0.45 * sampleRateHz, 16000.0 * std::pow (0.22, (double) warmth));
+        const float darkCoeff = (float) std::exp (-juce::MathConstants<double>::twoPi * darkHz / sampleRateHz);
+
         // Safety net: if the voices ever stop being real numbers, start the
         // engine and the high-pass afresh and drop this chunk of voices, so a
         // single bad value can never silence the plugin (and the whole track
@@ -283,6 +318,7 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 for (int i = 0; i < n; ++i)
                     voices[v][i] = 0.0f;
             wetHighpassStateL = wetHighpassStateR = 0.0f;
+            warmthState.fill (0.0f);
         }
 
         for (int i = 0; i < n; ++i)
@@ -310,6 +346,13 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                     x = x * (1.0f - 0.3f * det) + voices[OctaveEngine::up1Detuned][i] * 0.7f * det;
                 else if (v == OctaveEngine::up2)
                     x = x * (1.0f - 0.3f * det) + voices[OctaveEngine::up2Detuned][i] * 0.7f * det;
+
+                if (warmOn && puppychow::isWarmable (c))
+                {
+                    const float sat = (std::tanh (drive * x + bias) - tanhBias) * unity;
+                    x = sat + darkCoeff * (warmthState[(size_t) c] - sat);
+                }
+                warmthState[(size_t) c] = x;
 
                 wetL += gL * x;
                 wetR += gR * x;

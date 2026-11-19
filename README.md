@@ -9,15 +9,20 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ![Placeholder interface](docs/interface.png)
 
-- **Eight channels**, each with an on/off switch, a pan knob and a level slider: two octaves down, one
-  octave down, a fourth down, Dry, a fifth up, one octave up, an octave plus a fifth up, and
-  two octaves up.
+- **Nine channels**, each with an on/off switch, a solo button, a pan knob and a level slider: two octaves down, one
+  octave down, a fourth down, Dry, a fifth up, one octave up, an octave plus a fifth up,
+  two octaves up, and Overtones.
+- **Overtones** ("ghost partials") adds the 7th, 9th, 11th and 13th harmonics of what you play.
+  They sit between the notes of a piano, so they shimmer in a way no fretted note can, and
+  they bloom in after each pick.
 - **Pan** places each channel left or right (constant-power, so it stays equally loud as it
   moves; double-click a knob to centre it). Everything starts centred, which sounds exactly like
   mono. On a stereo input the Dry pan works as a balance control.
 - **Detune** adds slightly sharp copies of the two octave-up voices for a 12-string shimmer.
 - **Swell** fades the voices in after each picked note, like a volume swell or a bowed string.
   Its **Dry** switch makes the dry guitar swell too.
+- **Warmth** adds soft tape-style saturation and a darker top to the voices above the dry
+  guitar, so they sound less digital.
 - **Output** sets the overall level. A gentle limiter rounds off peaks above about -2 dBFS so
   stacked voices on a hard strum never overload whatever comes next.
 - **Tracking** trades speed for cleanliness. *Tight* responds fastest, *Clean* keeps low and

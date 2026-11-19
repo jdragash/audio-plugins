@@ -4,6 +4,20 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
+## 0.2.0 (unreleased)
+
+- Overtones channel ("ghost partials"): the 7th, 9th, 11th and 13th harmonics of whatever
+  you play. They fall between the notes of a piano, so they add a shimmer no fretted note
+  can make, and they bloom in after each pick. Level, pan and on/off like the other
+  channels (off by default).
+- Warmth control (0 to 100 %): soft, slightly lopsided tape-style saturation and a darker
+  top on the voices above the dry guitar, so they sound less digital. The voices below
+  are left alone.
+- Solo (S) button on every channel: while any channel is soloed, only soloed channels play,
+  even ones that are switched off.
+- Fixed a voice that was switched off when the plugin was (re)started coming back far too
+  loud when switched on.
+
 ## 0.1.0 (2026-11-19)
 
 First tagged version. Everything built so far:
