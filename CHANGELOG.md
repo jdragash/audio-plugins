@@ -4,6 +4,22 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
+## 0.4.0 (unreleased, test build)
+
+- New drawn interface ("Puppy Chow, Drawn"): one stack of voices, highest on top. A crayon
+  wash is each voice's level; sweep down the stack to draw a tone. Tap a voice's light to
+  switch it off (it goes dashed, keeps its level, and sweeps skip it). Stickers per voice:
+  fuzz ball = Fuzz, candy = Crush, puff of air = Shimmer. Swell ramp and Spread on the front;
+  flip the page for levels, pan nudges, stickers, Warmth, Volume and Tracking. Follows the
+  system light/dark setting.
+- **Spread** (new, 0 to 100 %, default 50 %): fans the voices above the dry guitar out
+  across the stereo field, higher voices wider, alternating sides. Lows and Dry stay
+  centered. Each voice's pan is now a nudge on top of Spread.
+- **Swing** (new toggle, off by default): the spread voices drift slowly side to side, each
+  at its own speed.
+- Swell now swells the dry guitar too by default. On the back: "Don't swell the dry guitar".
+- Detune and Solo are no longer shown (still saved in old sessions).
+
 ## 0.3.1 (2026-11-20)
 
 (0.3.0 was a test build only and was never released.)

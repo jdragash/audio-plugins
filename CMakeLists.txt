@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(PuppyChow VERSION 0.3.1 LANGUAGES C CXX)
+project(PuppyChow VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,8 +48,14 @@ target_sources(PuppyChow PRIVATE
 
 target_include_directories(PuppyChow PRIVATE src)
 
+# The interface is a drawn web page (src/ui/index.html) shown in a web view.
+juce_add_binary_data(PuppyChowUI
+    NAMESPACE PuppyChowUI
+    HEADER_NAME BinaryData.h
+    SOURCES src/ui/index.html)
+
 target_compile_definitions(PuppyChow PUBLIC
-    JUCE_WEB_BROWSER=0
+    JUCE_WEB_BROWSER=1
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
@@ -61,12 +67,19 @@ endif()
 
 target_link_libraries(PuppyChow
     PRIVATE
+        PuppyChowUI
+        juce::juce_gui_extra
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Linux builds (cloud checks only) need WebKitGTK for the web view.
+if(UNIX AND NOT APPLE)
+    target_link_libraries(PuppyChow PRIVATE juce::pkgconfig_JUCE_BROWSER_LINUX_DEPS)
+endif()
 
 # Offline engine tests. Plain C++, no JUCE, so they run anywhere:
 #   cmake --build build --target PuppyChowEngineTests && ctest --test-dir build

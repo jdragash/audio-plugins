@@ -48,6 +48,7 @@ public:
 private:
     float channelTargetGain (int channel) const noexcept;
     std::pair<float, float> channelPanGains (int channel, bool stereoOut) const noexcept;
+    void updatePans (double elapsedSeconds) noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
 
@@ -60,6 +61,10 @@ private:
     std::atomic<float>* detuneCents = nullptr;
     std::atomic<float>* swellMs = nullptr;
     std::atomic<float>* swellDry = nullptr;
+    std::atomic<float>* spreadPct = nullptr;
+    std::atomic<float>* swingOn = nullptr;
+    std::array<float, puppychow::numChannels> effectivePan {};   // -1..1 after Spread, Swing and the channel's own pan
+    std::array<double, puppychow::numChannels> swingPhase {};
     std::atomic<float>* warmthPct = nullptr;
     std::atomic<float>* trackingMode = nullptr;
     std::atomic<float>* outputDb = nullptr;

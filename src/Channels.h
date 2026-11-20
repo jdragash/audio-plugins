@@ -47,4 +47,19 @@ namespace puppychow
     inline constexpr const char* optionIds[numOptions]   = { "fuzz", "crush", "shimmer" };
     inline constexpr const char* optionNames[numOptions] = { "Fuzz", "Crush", "Shimmer" };
     inline constexpr float minOutputDb = -24.0f, maxOutputDb = 6.0f;
+
+    // Spread pans the voices above Dry away from the centre: the higher the
+    // voice, the wider it goes, alternating left and right (+5th left, +1 Oct
+    // right, ...). The voices below Dry and Dry itself stay centred so the low
+    // end stays solid. Each channel's own pan is added on top as a nudge.
+    // With Swing on, each of those voices instead sways slowly between its
+    // left and right spread positions, each at its own rate.
+    inline constexpr float spreadHeight[numChannels] = { 0, 0, 0, 0, 0.56f, 0.68f, 0.79f, 0.90f, 1.0f };
+    inline constexpr float spreadWidth (int channel, float spread) noexcept
+    {
+        return channel <= dryChannel ? 0.0f : spread * (0.35f + 0.65f * (spreadHeight[channel] - 0.5f) / 0.5f);
+    }
+    inline constexpr float spreadSide (int channel) noexcept { return ((channel - dryChannel - 1) % 2) ? 1.0f : -1.0f; }
+    inline constexpr double swingRateHz (int channel) noexcept { return 0.07 + 0.045 * (channel - dryChannel - 1); }
+    inline constexpr double swingPhaseOffset (int channel) noexcept { return 1.7 * (channel - dryChannel - 1); }
 }

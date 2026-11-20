@@ -2,10 +2,13 @@
 
 #include "PluginProcessor.h"
 
-// Placeholder interface: a mixer strip per channel (on/off switch and a
-// vertical level slider), plus Detune, Swell, Warmth and the Tracking mode.
-// The real design comes later.
-class PuppyChowEditor final : public juce::AudioProcessorEditor
+#if JUCE_WEB_BROWSER
+
+// The Puppy Chow interface: a drawn page (src/ui/index.html) shown in a web
+// view. The page sends "ui" events (ready / set / begin / end) and receives
+// "state" events holding {paramId: [normalised value, display text]}.
+class PuppyChowEditor final : public juce::AudioProcessorEditor,
+                              private juce::Timer
 {
 public:
     explicit PuppyChowEditor (PuppyChowProcessor&);
@@ -15,36 +18,20 @@ public:
     void resized() override;
 
 private:
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-
-    struct Strip
-    {
-        juce::Label title;
-        juce::ToggleButton onButton;
-        juce::TextButton soloButton;
-        std::array<juce::TextButton, puppychow::numOptions> options;   // Fuzz, Crush and Shimmer under the fader
-        std::array<std::unique_ptr<ButtonAttachment>, puppychow::numOptions> optionAttachments;
-        juce::Slider slider;
-        juce::Slider pan;
-        std::unique_ptr<SliderAttachment> panAttachment;
-        std::unique_ptr<SliderAttachment> sliderAttachment;
-        std::unique_ptr<ButtonAttachment> buttonAttachment;
-        std::unique_ptr<ButtonAttachment> soloAttachment;
-    };
-
-    void setUpSlider (Strip&, const juce::String& title, const juce::String& paramId, const juce::String& suffix);
+    void timerCallback() override;
+    void handleUiEvent (const juce::var& event);
+    void sendState (bool everything);
+    std::optional<juce::WebBrowserComponent::Resource> getResource (const juce::String& url);
 
     PuppyChowProcessor& pluginProcessor;
-    juce::LookAndFeel_V4 lookAndFeel;
+    juce::Array<juce::RangedAudioParameter*> params;
+    std::vector<float> sentValues;
+    std::set<juce::String> heldGestures;
+    bool pageReady = false;
 
-    std::array<Strip, puppychow::numChannels> channelStrips;
-    Strip detuneStrip, swellStrip, warmthStrip, outputStrip;
-
-    juce::Label trackingLabel;
-    juce::ComboBox trackingBox;
-    std::unique_ptr<ComboBoxAttachment> trackingAttachment;
+    juce::WebBrowserComponent browser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PuppyChowEditor)
 };
+
+#endif

@@ -25,6 +25,8 @@ PuppyChowProcessor::PuppyChowProcessor()
     detuneCents = parameters.getRawParameterValue ("detune");
     swellMs = parameters.getRawParameterValue ("swell");
     swellDry = parameters.getRawParameterValue ("swell_dry");
+    spreadPct = parameters.getRawParameterValue ("spread");
+    swingOn = parameters.getRawParameterValue ("swing");
     warmthPct = parameters.getRawParameterValue ("warmth");
     trackingMode = parameters.getRawParameterValue ("tracking");
     outputDb = parameters.getRawParameterValue ("output");
@@ -101,10 +103,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
         juce::NormalisableRange<float> (0.0f, puppychow::maxSwellMs, 1.0f, 0.5f), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel ("ms")));
 
-    // Off: Swell fades in only the voices. On: the dry guitar swells too,
-    // like a volume pedal rolled up after every pick.
+    // On (the default): the dry guitar swells too, like a volume pedal rolled
+    // up after every pick. Off: Swell fades in only the voices.
     layout.add (std::make_unique<juce::AudioParameterBool> (
-        juce::ParameterID { "swell_dry", 1 }, "Swell Dry", false));
+        juce::ParameterID { "swell_dry", 1 }, "Swell Dry", true));
+
+    // Spread fans the voices above Dry out across the stereo field (see
+    // Channels.h); Swing makes them sway slowly instead of sitting still.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "spread", 1 }, "Spread",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f), 50.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { "swing", 1 }, "Swing", false));
 
     // Warmth makes the voices above the dry guitar less "digital": soft,
     // slightly lopsided saturation (like tape or a tube) and a darker top.
@@ -138,6 +150,33 @@ float PuppyChowProcessor::channelTargetGain (int channel) const noexcept
     return (! on || dbValue <= puppychow::minLevelDb + 0.05f) ? 0.0f : juce::Decibels::decibelsToGain (dbValue);
 }
 
+// Where each channel sits: Spread (and Swing) plus the channel's own pan.
+void PuppyChowProcessor::updatePans (double elapsedSeconds) noexcept
+{
+    const float spread = juce::jlimit (0.0f, 1.0f, spreadPct->load() / 100.0f);
+    const bool swing = swingOn->load() >= 0.5f;
+    for (int i = 0; i < numChannels; ++i)
+    {
+        float base = 0.0f;
+        if (i > puppychow::dryChannel)
+        {
+            const float width = puppychow::spreadWidth (i, spread);
+            if (swing)
+            {
+                auto& phase = swingPhase[(size_t) i];
+                phase = std::fmod (phase + juce::MathConstants<double>::twoPi * puppychow::swingRateHz (i) * elapsedSeconds,
+                                   juce::MathConstants<double>::twoPi);
+                base = width * (float) std::sin (phase + puppychow::swingPhaseOffset (i));
+            }
+            else
+            {
+                base = width * puppychow::spreadSide (i);
+            }
+        }
+        effectivePan[(size_t) i] = juce::jlimit (-1.0f, 1.0f, base + channelPan[(size_t) i]->load() / 100.0f);
+    }
+}
+
 // Constant-power pan law, scaled so the centre position is unchanged (unity
 // on both sides). Moving a channel to one side raises that side by 3 dB and
 // fades the other out, so its loudness stays even as it moves.
@@ -146,7 +185,7 @@ std::pair<float, float> PuppyChowProcessor::channelPanGains (int channel, bool s
     if (! stereoOut)
         return { 1.0f, 1.0f };
 
-    const float pan = juce::jlimit (-1.0f, 1.0f, channelPan[(size_t) channel]->load() / 100.0f);
+    const float pan = effectivePan[(size_t) channel];
     const float angle = (pan + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
     return { std::cos (angle) * juce::MathConstants<float>::sqrt2, std::sin (angle) * juce::MathConstants<float>::sqrt2 };
 }
@@ -161,6 +200,7 @@ void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
     activeEngine = -1;
 
     const bool stereoOut = getTotalNumOutputChannels() > 1;
+    updatePans (0.0);
     for (int i = 0; i < numChannels; ++i)
     {
         const float level = channelTargetGain (i);
@@ -244,6 +284,7 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     // Levels, and which voices the engine can skip because nobody hears them.
     const bool stereoOut = numOut > 1;
+    updatePans (numSamples / sampleRateHz);
     bool active[OctaveEngine::numVoices] = {};
     for (int i = 0; i < numChannels; ++i)
     {
@@ -505,7 +546,11 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
 juce::AudioProcessorEditor* PuppyChowProcessor::createEditor()
 {
+   #if JUCE_WEB_BROWSER
     return new PuppyChowEditor (*this);
+   #else
+    return new juce::GenericAudioProcessorEditor (*this);   // builds without a web view (host tests)
+   #endif
 }
 
 void PuppyChowProcessor::getStateInformation (juce::MemoryBlock& destData)
