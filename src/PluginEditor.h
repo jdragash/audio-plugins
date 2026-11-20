@@ -9,7 +9,7 @@ class PuppyChowEditor final : public juce::AudioProcessorEditor
 {
 public:
     explicit PuppyChowEditor (PuppyChowProcessor&);
-    ~PuppyChowEditor() override = default;
+    ~PuppyChowEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -35,6 +35,7 @@ private:
     void setUpSlider (Strip&, const juce::String& title, const juce::String& paramId, const juce::String& suffix);
 
     PuppyChowProcessor& pluginProcessor;
+    juce::LookAndFeel_V4 lookAndFeel;
 
     std::array<Strip, puppychow::numChannels> channelStrips;
     Strip detuneStrip, swellStrip, warmthStrip, outputStrip;
