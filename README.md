@@ -5,9 +5,8 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Version 0.4.0 (test build).** The latest finished version, 0.3.1, is on the
-[Releases](https://github.com/jdragash/puppy-chow/releases) page. 0.4.0 brings the real,
-hand-drawn interface and is being tried out before release.
+**Version 0.4.0.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
+page. 0.4.0 brings the real, hand-drawn interface.
 
 ![The front of Puppy Chow: a stack of voices drawn as crayon washes](docs/interface.jpg)
 
