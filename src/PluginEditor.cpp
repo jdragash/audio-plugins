@@ -151,6 +151,9 @@ void PuppyChowEditor::sendState (bool everything)
     }
 
     const bool dark = pluginProcessor.getParameters().state.getProperty (darkModeId, false);
+    if (everything)
+        changes->setProperty ("version", juce::Array<juce::var> { 0.0, juce::String ("v") + JucePlugin_VersionString });
+
     if (everything || dark != sentDark)
     {
         sentDark = dark;

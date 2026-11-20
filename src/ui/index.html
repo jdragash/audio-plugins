@@ -55,7 +55,7 @@ function def(id,n,t){P[id]={n,t:t||''};}
 // Values to show when the page is opened outside the plugin (for previews).
 VOICES.forEach((v,i)=>{def(v.id,i===DRY?0.82:0.67,i===DRY?'0.0 dB':'-6.0 dB');def(v.id+'_on',[0,1,0,1,0,1,0,0,0][i]);def(v.id+'_pan',0.5,'C');TYPES.forEach(t=>def(v.id+'_'+t,0));});
 def('down1_fuzz',1);def('up1_shimmer',1);
-def('swell',0.6,'355 ms');def('swell_dry',1);def('spread',0.5,'50 %');def('swing',0);def('warmth',0,'0 %');def('output',0.8,'0.0 dB');def('tracking',1,'Clean');def('ui_dark',0);
+def('swell',0.6,'355 ms');def('swell_dry',1);def('spread',0.5,'50 %');def('swing',0);def('warmth',0,'0 %');def('output',0.8,'0.0 dB');def('tracking',1,'Clean');def('ui_dark',0);def('version',0,'v0.4.0');
 
 const juce=window.__JUCE__&&window.__JUCE__.backend;
 function send(type,id,v){if(juce)juce.emitEvent('ui',{type,id,v});}
@@ -233,6 +233,7 @@ function drawBackCrisp(){const t=T();
     if(bdrag&&bdrag.i===i){const pv=panOf(i);text(bdrag.kind==='pan'?(Math.abs(pv)<0.04?'C':(pv<0?'L':'R')+Math.round(Math.abs(pv)*100)):(isOn(i)?P[VOICES[i].id].t:'off'),BW1+8,y+BRH/2+4.5,11.5,t.ink2,'left',600);}});
   BG.forEach(q=>{text(q.n,q.x,q.y+4.5,13.5,t.ink,'left',700);text(P[q.id].t,q.x+76+Math.max(16,P[q.id].n*190)+10,q.y+4.5,12,t.ink2,'left',600);});
   text("Don't swell the dry guitar",50,414.5,13.5,P.swell_dry.n<0.5?t.ink:t.ink2,'left',700);
+  text(P.version.t,W-28,456,11,t.ink2,'right',600);
   text('Dark paper',395,414.5,13.5,mode==='dark'?t.ink:t.ink2,'left',700);
   text('Tracking',28,453,13.5,t.ink,'left',700);const ti=trackIndex();trackPills((m,k,x,w)=>text(m,x+w/2,452.5,13,k===ti?t.ink:t.ink2,'center',700));
 }

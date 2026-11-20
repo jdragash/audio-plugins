@@ -91,8 +91,8 @@ the Actions tab. Those builds are not code-signed, so macOS may block them the f
 
 ## Versions and testing
 
-Each version is listed in [CHANGELOG.md](CHANGELOG.md), and the version number shows in the plugin
-window. Finished, tested versions are on the [Releases](https://github.com/jdragash/puppy-chow/releases)
+Each version is listed in [CHANGELOG.md](CHANGELOG.md), and the version number shows in the bottom
+right corner of the back of the plugin. Finished, tested versions are on the [Releases](https://github.com/jdragash/puppy-chow/releases)
 page as a zip with the Audio Unit, VST3 and standalone app.
 
 How a change gets there:
