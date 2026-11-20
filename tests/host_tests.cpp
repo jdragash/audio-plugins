@@ -499,6 +499,77 @@ int main (int argc, char** argv)
         check (total > 1.0e-4 && up2 > 0.9 * total, "Solo +2 Oct: only +2 Oct is heard (" + juce::String (100.0 * up2 / (total + 1e-20), 0) + " % of the output)");
     }
 
+    // 12. Options under the faders.
+    {
+        const double sr = 48000.0, f = 110.0;
+
+        // Fuzz on -1 Oct: much more distortion, still within full scale.
+        double distortion[2] {}, level[2] {};
+        for (int on = 0; on < 2; ++on)
+        {
+            auto a = makeInstance (sr, 256);
+            soloChannel (*a, "down1");
+            setParam (*a, "down1_fuzz", (float) on);
+            const auto out = playSine (*a, sr, f, 1.5, 0);
+            std::vector<float> steady (out.begin() + 36000, out.end());
+            level[on] = meanPower (steady, 0, steady.size()) * 2.0;
+            distortion[on] = (level[on] - tonePower (steady, 0.5 * f, sr)) / (level[on] + 1e-20);
+        }
+        check (distortion[1] > 0.1 && distortion[1] > 5.0 * distortion[0],
+               "Fuzz distorts -1 Oct (" + juce::String (100.0 * distortion[0], 1) + " % -> " + juce::String (100.0 * distortion[1], 1) + " %)");
+        const double fuzzDb = 10.0 * std::log10 ((level[1] + 1e-20) / (level[0] + 1e-20));
+        check (std::abs (fuzzDb) < 8.0, "Fuzz keeps the level within 8 dB (" + juce::String (fuzzDb, 1) + " dB)");
+
+        // Crush on +1 Oct: the output moves in steps, so it has far more
+        // sample-to-sample jumps (high-frequency grit) than without.
+        double roughness[2] {};
+        for (int on = 0; on < 2; ++on)
+        {
+            auto a = makeInstance (sr, 256);
+            soloChannel (*a, "up1");
+            setParam (*a, "up1_crush", (float) on);
+            const auto out = playSine (*a, sr, f, 1.0, 0);
+            double diff = 0.0, power = 0.0;
+            for (size_t i = 24000; i + 1 < out.size(); ++i)
+            {
+                diff += (double) (out[i + 1] - out[i]) * (out[i + 1] - out[i]);
+                power += (double) out[i] * out[i];
+            }
+            roughness[on] = diff / (power + 1e-20);
+        }
+        check (roughness[1] > 5.0 * roughness[0], "Crush adds lo-fi steps (roughness x" + juce::String (roughness[1] / (roughness[0] + 1e-20), 1) + ")");
+
+        // Shimmer on +1 Oct: a tail rings on after the note stops; without it, silence.
+        double tail[2] {};
+        for (int on = 0; on < 2; ++on)
+        {
+            auto a = makeInstance (sr, 256);
+            soloChannel (*a, "up1");
+            setParam (*a, "up1_shimmer", (float) on);
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            std::vector<float> out;
+            for (long pos = 0; pos < 96000; pos += 256)
+            {
+                for (int i = 0; i < 256; ++i)
+                {
+                    const long n = pos + i;
+                    const float x = n < 48000 ? 0.3f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * f * (double) n / sr) : 0.0f;
+                    buffer.setSample (0, i, x); buffer.setSample (1, i, x);
+                }
+                a->processBlock (buffer, midi);
+                for (int i = 0; i < 256; ++i) out.push_back (buffer.getSample (0, i));
+            }
+            tail[on] = meanPower (out, 48000 + 24000, 48000 + 36000);   // 0.5 to 0.75 s after the note stops
+            bool finite = true;
+            for (float v : out) finite = finite && std::isfinite (v);
+            check (finite, juce::String ("Shimmer ") + (on ? "on" : "off") + ": output always finite");
+        }
+        check (tail[1] > 1.0e-5 && tail[1] > 1000.0 * (tail[0] + 1e-12),
+               "Shimmer leaves a tail after the note (" + juce::String (10.0 * std::log10 (tail[1] + 1e-20), 1) + " dB vs "
+               + juce::String (10.0 * std::log10 (tail[0] + 1e-20), 1) + " dB without)");
+    }
+
     std::printf (failures == 0 ? "\nAll host tests passed.\n" : "\n%d host checks FAILED.\n", failures);
     return failures == 0 ? 0 : 1;
 }

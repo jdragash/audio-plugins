@@ -55,6 +55,25 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
         addAndMakeVisible (strip.soloButton);
         strip.soloAttachment = std::make_unique<ButtonAttachment> (params, juce::String (ch.id) + "_solo", strip.soloButton);
 
+        // Options under the fader.
+        const int index = (int) i;
+        juce::StringArray optionNames;
+        if (puppychow::hasFuzz (index))            optionNames = { "Fuzz" };
+        if (puppychow::hasShimmerAndCrush (index)) optionNames = { "Shimmer", "Crush" };
+        for (int o = 0; o < optionNames.size(); ++o)
+        {
+            auto& b = strip.options[(size_t) o];
+            b.setButtonText (optionNames[o]);
+            b.setClickingTogglesState (true);
+            b.setColour (juce::TextButton::buttonColourId, panel);
+            b.setColour (juce::TextButton::buttonOnColourId, accent);
+            b.setColour (juce::TextButton::textColourOffId, ink);
+            b.setColour (juce::TextButton::textColourOnId, background);
+            addAndMakeVisible (b);
+            strip.optionAttachments[(size_t) o] = std::make_unique<ButtonAttachment> (
+                params, juce::String (ch.id) + "_" + optionNames[o].toLowerCase(), b);
+        }
+
         // Small pan knob. Double-click returns it to the centre.
         strip.pan.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         strip.pan.setTextBoxStyle (juce::Slider::TextBoxBelow, false, stripWidth - 12, 16);
@@ -100,7 +119,7 @@ PuppyChowEditor::PuppyChowEditor (PuppyChowProcessor& p)
     addAndMakeVisible (trackingBox);
     trackingAttachment = std::make_unique<ComboBoxAttachment> (params, "tracking", trackingBox);
 
-    setSize (2 * margin + stripWidth * (puppychow::numChannels + 4) + gapBeforeExtras, 470);
+    setSize (2 * margin + stripWidth * (puppychow::numChannels + 4) + gapBeforeExtras, 530);
 }
 
 void PuppyChowEditor::setUpSlider (Strip& strip, const juce::String& title, const juce::String& paramId, const juce::String& suffix)
@@ -164,6 +183,12 @@ void PuppyChowEditor::resized()
             strip.onButton.setBounds (buttonRow.withSizeKeepingCentre (56, 24));
         if (hasPan)
             strip.pan.setBounds (panRow.withSizeKeepingCentre (stripWidth - 8, 66));
+        // Room under the fader for up to two option buttons (same on every
+        // strip, so the faders line up).
+        auto optionArea = column.removeFromBottom (54);
+        for (auto& b : strip.options)
+            if (b.isVisible())
+                b.setBounds (optionArea.removeFromTop (27).withSizeKeepingCentre (stripWidth - 12, 23));
         strip.slider.setBounds (column);
     };
 

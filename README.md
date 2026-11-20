@@ -17,6 +17,8 @@ the real design.
 - **Overtones** ("ghost partials") adds the 7th, 9th, 11th and 13th harmonics of what you play.
   They sit between the notes of a piano, so they shimmer in a way no fretted note can, and
   they bloom in after each pick.
+- **Options under the faders**: *Fuzz* on the channels below Dry; *Shimmer* (a lush reverb
+  tail) and *Crush* (lo-fi bit and sample-rate reduction) on the channels above it.
 - **Pan** places each channel left or right (constant-power, so it stays equally loud as it
   moves; double-click a knob to centre it). Everything starts centred, which sounds exactly like
   mono. On a stereo input the Dry pan works as a balance control.

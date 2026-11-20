@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "Channels.h"
+#include "dsp/Shimmer.h"
 #include "dsp/OctaveEngine.h"
 
 // Puppy Chow: a polyphonic octave pedal.
@@ -54,6 +55,8 @@ private:
     std::array<std::atomic<float>*, puppychow::numChannels> channelOn {};
     std::array<std::atomic<float>*, puppychow::numChannels> channelPan {};
     std::array<std::atomic<float>*, puppychow::numChannels> channelSolo {};
+    // Per-channel options; nullptr where a channel doesn't have that option.
+    std::array<std::atomic<float>*, puppychow::numChannels> channelFuzz {}, channelShimmer {}, channelCrush {};
     std::atomic<float>* detuneCents = nullptr;
     std::atomic<float>* swellMs = nullptr;
     std::atomic<float>* swellDry = nullptr;
@@ -69,6 +72,15 @@ private:
     // Warmth: amount (0..1, smoothed) and each channel's darkening filter state.
     juce::SmoothedValue<float> warmthAmount;
     std::array<float, puppychow::numChannels> warmthState {};
+
+    // Fuzz tone filter, Crush sample-and-hold, and the shared Shimmer reverb.
+    std::array<float, puppychow::numChannels> fuzzState {};
+    std::array<float, puppychow::numChannels> crushHeld {};
+    std::array<int, puppychow::numChannels> crushCount {};
+    int crushHold = 6;
+    float fuzzToneCoeff = 0.0f;
+    puppychow::Shimmer shimmer;
+    int shimmerTail = 0, shimmerTailLength = 0;   // samples left before the reverb can stop running
 
     // One engine per tracking mode, so switching never rebuilds anything on
     // the audio thread.

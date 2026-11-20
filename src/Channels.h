@@ -38,5 +38,11 @@ namespace puppychow
     // Warmth (0 to 100 %) works on the channels above the dry guitar: they sound
     // the most "digital", so they get soft tape-style saturation and a darker top.
     inline constexpr bool isWarmable (int channel) { return channel > dryChannel; }
+
+    // Options under each channel's fader. Channels below the dry guitar can
+    // add Fuzz; channels above it can add Shimmer (a lush reverb tail) and
+    // Crush (lo-fi bit and sample-rate reduction).
+    inline constexpr bool hasFuzz (int channel) { return channel < dryChannel; }
+    inline constexpr bool hasShimmerAndCrush (int channel) { return channel > dryChannel; }
     inline constexpr float minOutputDb = -24.0f, maxOutputDb = 6.0f;
 }
