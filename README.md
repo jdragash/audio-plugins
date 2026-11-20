@@ -5,7 +5,7 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Version 0.2.1.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
+**Version 0.3.1.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
 page. The sound engine and controls are working; the interface is still a placeholder until
 the real design.
 
@@ -17,6 +17,9 @@ the real design.
 - **Overtones** ("ghost partials") adds the 7th, 9th, 11th and 13th harmonics of what you play.
   They sit between the notes of a piano, so they shimmer in a way no fretted note can, and
   they bloom in after each pick.
+- **Options under every fader**, on all nine channels including Dry, to mix and match:
+  *Fuzz* (hard, lopsided clipping with a tone filter), *Crush* (lo-fi bit and sample-rate
+  reduction) and *Shimmer* (a lush stereo reverb tail that rings on after you stop).
 - **Pan** places each channel left or right (constant-power, so it stays equally loud as it
   moves; double-click a knob to centre it). Everything starts centred, which sounds exactly like
   mono. On a stereo input the Dry pan works as a balance control.
