@@ -56,7 +56,7 @@ function def(id,n,t){P[id]={n,t:t||''};}
 // Values to show when the page is opened outside the plugin (for previews).
 VOICES.forEach((v,i)=>{def(v.id,i===DRY?0.82:0.67,i===DRY?'0.0 dB':'-6.0 dB');def(v.id+'_on',[0,1,0,1,0,1,0,0,0][i]);def(v.id+'_pan',0.5,'C');TYPES.forEach(t=>def(v.id+'_'+t,0));});
 def('down1_fuzz',1);def('up1_shimmer',1);
-def('swell',0.6,'355 ms');def('swell_dry',1);def('spread',0.5,'50 %');def('swing',0);def('warmth',0,'0 %');def('output',0.8,'0.0 dB');def('tracking',1,'Clean');
+def('swell',0.6,'355 ms');def('swell_dry',1);def('spread',0.5,'50 %');def('swing',0);def('warmth',0,'0 %');def('output',0.8,'0.0 dB');def('tracking',1,'Clean');def('ui_dark',0);
 
 const juce=window.__JUCE__&&window.__JUCE__.backend;
 function send(type,id,v){if(juce)juce.emitEvent('ui',{type,id,v});}
@@ -66,7 +66,7 @@ function begin(id){if(held.has(id))return;held.add(id);send('begin',id);}
 function endAll(){held.forEach(id=>send('end',id));held.clear();}
 function tap(id,n){begin(id);setN(id,n);endAll();}
 if(juce){
-  juce.addEventListener('state',s=>{for(const id in s){const e=s[id];if(held.has(id)){if(P[id])P[id].t=e[1];continue;}P[id]={n:e[0],t:e[1]};}});
+  juce.addEventListener('state',s=>{for(const id in s){const e=s[id];if(held.has(id)){if(P[id])P[id].t=e[1];continue;}P[id]={n:e[0],t:e[1]};}syncMode();});
   send('ready');
 }
 
@@ -89,9 +89,8 @@ let flipped=false,boil=0,drag=null,hoverRow=-1,bdrag=null;
 /* ---------- theme ---------- */
 const PAL={light:{paper:'#EFEEEA',card:'#F7F6F2',ink:'#1C1B19',ink2:'#8A8883',hair:'rgba(28,27,25,.14)',wash:0.30,edge:0.55,glass:'rgba(255,255,255,.7)'},
            dark:{paper:'#1D1C1A',card:'#2B2A27',ink:'#F2F1EE',ink2:'#8D8B86',hair:'rgba(242,241,238,.16)',wash:0.42,edge:0.7,glass:'rgba(60,59,55,.75)'}};
-const darkMQ=window.matchMedia?matchMedia('(prefers-color-scheme: dark)'):null;
-let mode=darkMQ&&darkMQ.matches?'dark':'light';
-if(darkMQ&&darkMQ.addEventListener)darkMQ.addEventListener('change',e=>{mode=e.matches?'dark':'light';});
+let mode='light';   // light paper by default; "Dark paper" on the back (saved with the session)
+function syncMode(){mode=P.ui_dark&&P.ui_dark.n>0.5?'dark':'light';}
 const T=()=>PAL[mode];
 
 /* ---------- canvases ---------- */
@@ -225,6 +224,7 @@ function drawBackInk(){const t=T();
   rough([[28,350],[W-28,350]],t.hair,1,500,1);
   BG.forEach((q,k)=>{wash(q.x+76,q.y-8,Math.max(16,P[q.id].n*190),16,'#2A78D6',600+k,null);});
   light(35,410,P.swell_dry.n<0.5,'#2A78D6',640);
+  light(380,410,mode==='dark','#2A78D6',645);
   const ti=trackIndex();trackPills((m,k,x,w)=>{if(k===ti)wash(x,438,w,20,'#8A8883',650+k,null);});
 }
 function drawBackCrisp(){const t=T();
@@ -234,6 +234,7 @@ function drawBackCrisp(){const t=T();
     if(bdrag&&bdrag.i===i){const pv=panOf(i);text(bdrag.kind==='pan'?(Math.abs(pv)<0.04?'C':(pv<0?'L':'R')+Math.round(Math.abs(pv)*100)):(isOn(i)?P[VOICES[i].id].t:'off'),BW1+8,y+BRH/2+4.5,11.5,t.ink2,'left',600);}});
   BG.forEach(q=>{text(q.n,q.x,q.y+4.5,13.5,t.ink,'left',700);text(P[q.id].t,q.x+76+Math.max(16,P[q.id].n*190)+10,q.y+4.5,12,t.ink2,'left',600);});
   text("Don't swell the dry guitar",50,414.5,13.5,P.swell_dry.n<0.5?t.ink:t.ink2,'left',700);
+  text('Dark paper',395,414.5,13.5,mode==='dark'?t.ink:t.ink2,'left',700);
   text('Tracking',28,453,13.5,t.ink,'left',700);const ti=trackIndex();trackPills((m,k,x,w)=>text(m,x+w/2,452.5,13,k===ti?t.ink:t.ink2,'center',700));
 }
 
@@ -286,6 +287,7 @@ function hitBack(x,y){if(dist(FLIP[0],FLIP[1],x,y)<20)return{kind:'flip'};
     if(x<BW0-6)return{kind:'name',i};if(x<=BW1+10)return{kind:'level',i};if(x>=PX0-10&&x<=PX1+10)return{kind:'pan',i};for(const tp of TYPES)if(Math.abs(x-BFX(tp))<14)return{kind:'fx',i,t:tp};}
   for(const q of BG)if(y>q.y-14&&y<q.y+12&&x>=q.x+60&&x<=q.x+290)return{kind:'g',q};
   if(y>398&&y<424&&x<240)return{kind:'swellDry'};
+  if(y>398&&y<424&&x>=366&&x<480)return{kind:'dark'};
   if(y>434&&y<462&&x>=100){let hit=null;g=front.getContext('2d');trackPills((m,k,tx,w)=>{if(x>=tx&&x<=tx+w)hit={kind:'track',k};});if(hit)return hit;}
   return null;}
 function moveBack(x){const d=bdrag;
@@ -295,6 +297,7 @@ function moveBack(x){const d=bdrag;
 back.addEventListener('pointerdown',e=>{const [x,y]=pos(e,back);const h=hitBack(x,y);if(!h)return;e.preventDefault();
   if(h.kind==='flip'){doFlip();return;}
   if(h.kind==='swellDry'){tap('swell_dry',P.swell_dry.n<0.5?1:0);return;}
+  if(h.kind==='dark'){P.ui_dark.n=mode==='dark'?0:1;send('set','ui_dark',P.ui_dark.n);syncMode();return;}
   if(h.kind==='track'){tap('tracking',h.k/2);return;}
   if(h.kind==='name'){tap(VOICES[h.i].id+'_on',isOn(h.i)?0:1);return;}
   if(h.kind==='fx'){tap(VOICES[h.i].id+'_'+h.t,fx(h.i,h.t)?0:1);return;}

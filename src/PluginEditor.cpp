@@ -8,6 +8,7 @@ namespace
 {
     constexpr int editorWidth = 720;
     constexpr int editorHeight = 480;
+    const juce::Identifier darkModeId { "ui_dark" };
 
     // Short, friendly text for the page: "355 ms", "-3.5 dB", "50 %", "Clean".
     juce::String displayText (juce::RangedAudioParameter& param)
@@ -95,6 +96,13 @@ void PuppyChowEditor::handleUiEvent (const juce::var& event)
     }
 
     const auto id = event["id"].toString();
+
+    if (type == "set" && id == darkModeId)   // a look setting, saved with the session but not automatable
+    {
+        pluginProcessor.getParameters().state.setProperty (darkModeId, (double) event["v"] > 0.5, nullptr);
+        return;
+    }
+
     auto* param = pluginProcessor.getParameters().getParameter (id);
     if (param == nullptr)
         return;
@@ -139,6 +147,14 @@ void PuppyChowEditor::sendState (bool everything)
         sentValues[(size_t) i] = value;
         juce::Array<juce::var> entry { value, displayText (*param) };
         changes->setProperty (param->getParameterID(), entry);
+        any = true;
+    }
+
+    const bool dark = pluginProcessor.getParameters().state.getProperty (darkModeId, false);
+    if (everything || dark != sentDark)
+    {
+        sentDark = dark;
+        changes->setProperty (darkModeId, juce::Array<juce::var> { dark ? 1.0 : 0.0, juce::String() });
         any = true;
     }
 

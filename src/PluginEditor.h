@@ -28,6 +28,7 @@ private:
     std::vector<float> sentValues;
     std::set<juce::String> heldGestures;
     bool pageReady = false;
+    bool sentDark = false;
 
     juce::WebBrowserComponent browser;
 

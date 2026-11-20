@@ -10,8 +10,8 @@ between 0.x versions.
   wash is each voice's level; sweep down the stack to draw a tone. Tap a voice's light to
   switch it off (it goes dashed, keeps its level, and sweeps skip it). Stickers per voice:
   fuzz ball = Fuzz, candy = Crush, puff of air = Shimmer. Swell ramp and Spread on the front;
-  flip the page for levels, pan nudges, stickers, Warmth, Volume and Tracking. Follows the
-  system light/dark setting.
+  flip the page for levels, pan nudges, stickers, Warmth, Volume and Tracking. Light paper
+  by default; "Dark paper" on the back switches it (saved with the session).
 - **Spread** (new, 0 to 100 %, default 50 %): fans the voices above the dry guitar out
   across the stereo field, higher voices wider, alternating sides. Lows and Dry stay
   centered. Each voice's pan is now a nudge on top of Spread.
