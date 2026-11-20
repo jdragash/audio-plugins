@@ -8,7 +8,6 @@
 /* The plugin's whole window: one 720x480 canvas, front and back, flipped with a 3D turn.
    Drawn after Tilly: paper with grain, colour washes with rough edges, rounded type. */
 :root{--paper:#EFEEEA;color-scheme:light}
-@media (prefers-color-scheme: dark){:root{--paper:#1D1C1A;color-scheme:dark}}
 html,body{margin:0;height:100%;background:var(--paper);overflow:hidden;-webkit-user-select:none;user-select:none;cursor:default}
 .flipwrap{position:fixed;inset:0;perspective:2400px}
 #flipper{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.3,.7,.2,1)}
@@ -90,7 +89,7 @@ let flipped=false,boil=0,drag=null,hoverRow=-1,bdrag=null;
 const PAL={light:{paper:'#EFEEEA',card:'#F7F6F2',ink:'#1C1B19',ink2:'#8A8883',hair:'rgba(28,27,25,.14)',wash:0.30,edge:0.55,glass:'rgba(255,255,255,.7)'},
            dark:{paper:'#1D1C1A',card:'#2B2A27',ink:'#F2F1EE',ink2:'#8D8B86',hair:'rgba(242,241,238,.16)',wash:0.42,edge:0.7,glass:'rgba(60,59,55,.75)'}};
 let mode='light';   // light paper by default; "Dark paper" on the back (saved with the session)
-function syncMode(){mode=P.ui_dark&&P.ui_dark.n>0.5?'dark':'light';}
+function syncMode(){mode=P.ui_dark&&P.ui_dark.n>0.5?'dark':'light';const r=document.documentElement.style;r.setProperty('--paper',PAL[mode].paper);r.colorScheme=mode;}
 const T=()=>PAL[mode];
 
 /* ---------- canvases ---------- */

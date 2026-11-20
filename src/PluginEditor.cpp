@@ -63,7 +63,7 @@ PuppyChowEditor::~PuppyChowEditor()
 
 void PuppyChowEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff2a2622));
+    g.fillAll (juce::Colour (0xffefeeea)); // light paper until the page loads
 }
 
 void PuppyChowEditor::resized()
