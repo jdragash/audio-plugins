@@ -5,7 +5,7 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Version 0.2.1.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
+**Version 0.3.1.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
 page. The sound engine and controls are working; the interface is still a placeholder until
 the real design.
 

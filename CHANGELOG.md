@@ -4,7 +4,7 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
-## 0.3.1 (unreleased)
+## 0.3.1 (2026-11-20)
 
 (0.3.0 was a test build only and was never released.)
 
