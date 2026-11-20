@@ -5,36 +5,47 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Version 0.3.1.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
-page. The sound engine and controls are working; the interface is still a placeholder until
-the real design.
+**Version 0.4.0 (test build).** The latest finished version, 0.3.1, is on the
+[Releases](https://github.com/jdragash/puppy-chow/releases) page. 0.4.0 brings the real,
+hand-drawn interface and is being tried out before release.
 
-![Placeholder interface](docs/interface.png)
+![The front of Puppy Chow: a stack of voices drawn as crayon washes](docs/interface.jpg)
 
-- **Nine channels**, each with an on/off switch, a solo button, a pan knob and a level slider: two octaves down, one
-  octave down, a fourth down, Dry, a fifth up, one octave up, an octave plus a fifth up,
-  two octaves up, and Overtones.
-- **Overtones** ("ghost partials") adds the 7th, 9th, 11th and 13th harmonics of what you play.
-  They sit between the notes of a piano, so they shimmer in a way no fretted note can, and
-  they bloom in after each pick.
-- **Options under every fader**, on all nine channels including Dry, to mix and match:
-  *Fuzz* (hard, lopsided clipping with a tone filter), *Crush* (lo-fi bit and sample-rate
-  reduction) and *Shimmer* (a lush stereo reverb tail that rings on after you stop).
-- **Pan** places each channel left or right (constant-power, so it stays equally loud as it
-  moves; double-click a knob to centre it). Everything starts centred, which sounds exactly like
-  mono. On a stereo input the Dry pan works as a balance control.
-- **Detune** adds slightly sharp copies of the two octave-up voices for a 12-string shimmer.
-- **Swell** fades the voices in after each picked note, like a volume swell or a bowed string.
-  Its **Dry** switch makes the dry guitar swell too.
+**The front** is one stack of voices, highest on top:
+
+- **Nine voices**: two octaves down, one octave down, a fourth down, Dry, a fifth up, one
+  octave up, an octave plus a fifth up, two octaves up, and Overtones. A crayon wash shows
+  each voice's level; sweep down the stack to draw a whole tone in one go. Tap a voice's
+  light to switch it off (it goes dashed and keeps its level).
+- **Overtones** ("ghost partials") adds the 7th, 9th, 11th and 13th harmonics of what you
+  play. They sit between the notes of a piano, so they shimmer in a way no fretted note can.
+- **Stickers**: drag one onto any voice, Dry included, and mix them freely. The fuzz ball is
+  *Fuzz* (hard, lopsided clipping with a tone filter), the candy is *Crush* (lo-fi bit and
+  sample-rate reduction) and the puff of air is *Shimmer* (a lush stereo reverb tail that
+  rings on after you stop).
+- **Swell** fades the voices in after each picked note, like a volume swell or a bowed
+  string. It swells the dry guitar too, unless you switch that off on the back.
+- **Spread** fans the voices above the dry guitar out across the stereo field, higher voices
+  wider, alternating sides. Lows and Dry stay centred.
+- **Swing** (off by default) lets the spread voices drift slowly side to side, each at its
+  own speed.
+
+![The back of Puppy Chow: levels, pan nudges, stickers and settings](docs/interface-back.jpg)
+
+**The back** (tap the round arrow to flip the page) has the details:
+
+- Levels, a **pan nudge** on top of Spread, and the stickers for every voice.
 - **Warmth** adds soft tape-style saturation and a darker top to the voices above the dry
   guitar, so they sound less digital.
-- **Output** sets the overall level. A gentle limiter rounds off peaks above about -2 dBFS so
+- **Volume** sets the overall level. A gentle limiter rounds off peaks above about -2 dBFS so
   stacked voices on a hard strum never overload whatever comes next.
+- **Don't swell the dry guitar** keeps the dry signal at full level while the voices swell.
+- **Dark paper** switches the interface from light to dark. It's saved with the plugin.
 - **Tracking** trades speed for cleanliness. *Tight* responds fastest, *Clean* keeps low and
   close-voiced chords clearest but lets the voices bloom in more slowly, and *Balanced* sits
   between them.
 
-Still to come: a Tone filter, and a proper interface.
+Still to come: a Tone filter.
 
 Design goals:
 - Feels like a pedal, not a delay. Your dry signal is never delayed. The voices fade in over
