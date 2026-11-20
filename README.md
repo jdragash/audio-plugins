@@ -5,7 +5,9 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Milestone 3: more voices and controls.** The interface is still a placeholder.
+**Version 0.2.0.** Download it from the [Releases](https://github.com/jdragash/puppy-chow/releases)
+page. The sound engine and controls are working; the interface is still a placeholder until
+the real design.
 
 ![Placeholder interface](docs/interface.png)
 
@@ -67,7 +69,8 @@ auval -v aufx Pchw Jdrg
 
 ## Getting a build without compiling
 
-Every push to `main` and every pull request builds the plugin on GitHub Actions, runs the engine tests, and validates
+Every push to `main` and every pull request builds the plugin on GitHub Actions, runs the engine,
+host and stress tests, and validates
 it with `auval` and `pluginval`. Download the `PuppyChow-macOS` artifact from the latest run on
 the Actions tab. Those builds are not code-signed, so macOS may block them the first time; run
 `xattr -dr com.apple.quarantine "Puppy Chow.component"` after copying it in.
