@@ -24,8 +24,8 @@ private:
         juce::Label title;
         juce::ToggleButton onButton;
         juce::TextButton soloButton;
-        std::array<juce::TextButton, 2> options;   // Fuzz, or Shimmer and Crush, under the fader
-        std::array<std::unique_ptr<ButtonAttachment>, 2> optionAttachments;
+        std::array<juce::TextButton, puppychow::numOptions> options;   // Fuzz, Crush and Shimmer under the fader
+        std::array<std::unique_ptr<ButtonAttachment>, puppychow::numOptions> optionAttachments;
         juce::Slider slider;
         juce::Slider pan;
         std::unique_ptr<SliderAttachment> panAttachment;

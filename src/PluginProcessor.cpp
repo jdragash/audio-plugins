@@ -17,13 +17,9 @@ PuppyChowProcessor::PuppyChowProcessor()
         channelOn[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_on");
         channelPan[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_pan");
         channelSolo[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_solo");
-        if (puppychow::hasFuzz ((int) i))
-            channelFuzz[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_fuzz");
-        if (puppychow::hasShimmerAndCrush ((int) i))
-        {
-            channelShimmer[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_shimmer");
-            channelCrush[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_crush");
-        }
+        channelFuzz[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_fuzz");
+        channelShimmer[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_shimmer");
+        channelCrush[i] = parameters.getRawParameterValue (juce::String (channels[i].id) + "_crush");
     }
 
     detuneCents = parameters.getRawParameterValue ("detune");
@@ -70,17 +66,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PuppyChowProcessor::createPa
             juce::ParameterID { juce::String (ch.id) + "_solo", 1 }, juce::String (ch.name) + " Solo", false));
 
         // Options under the fader (see Channels.h).
-        const int index = (int) (&ch - channels);
-        if (puppychow::hasFuzz (index))
+        for (int o = 0; o < puppychow::numOptions; ++o)
             layout.add (std::make_unique<juce::AudioParameterBool> (
-                juce::ParameterID { juce::String (ch.id) + "_fuzz", 1 }, juce::String (ch.name) + " Fuzz", false));
-        if (puppychow::hasShimmerAndCrush (index))
-        {
-            layout.add (std::make_unique<juce::AudioParameterBool> (
-                juce::ParameterID { juce::String (ch.id) + "_shimmer", 1 }, juce::String (ch.name) + " Shimmer", false));
-            layout.add (std::make_unique<juce::AudioParameterBool> (
-                juce::ParameterID { juce::String (ch.id) + "_crush", 1 }, juce::String (ch.name) + " Crush", false));
-        }
+                juce::ParameterID { juce::String (ch.id) + "_" + puppychow::optionIds[o], 1 },
+                juce::String (ch.name) + " " + puppychow::optionNames[o], false));
 
         // Pan: -100 is hard left, 0 centre, +100 hard right.
         layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -192,6 +181,9 @@ void PuppyChowProcessor::prepareToPlay (double sampleRate, int)
     fuzzState.fill (0.0f);
     crushHeld.fill (0.0f);
     crushCount.fill (0);
+    dryFuzzState.fill (0.0f);
+    dryCrushHeld.fill (0.0f);
+    dryCrushCount = 0;
     crushHold = juce::jmax (1, (int) std::lround (sampleRate / 8000.0));   // about 8 kHz: lo-fi but still musical
     fuzzToneCoeff = (float) std::exp (-juce::MathConstants<double>::twoPi * 2500.0 / sampleRate);
     shimmer.prepare (sampleRate);
@@ -350,6 +342,8 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             warmthState.fill (0.0f);
             fuzzState.fill (0.0f);
             crushHeld.fill (0.0f);
+            dryFuzzState.fill (0.0f);
+            dryCrushHeld.fill (0.0f);
             shimmer.reset();
         }
 
@@ -358,14 +352,46 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         bool anyShimmer = false;
         for (int c = 0; c < numChannels; ++c)
         {
-            fuzzOn[c] = channelFuzz[(size_t) c] != nullptr && channelFuzz[(size_t) c]->load() > 0.5f;
-            shimmerOn[c] = channelShimmer[(size_t) c] != nullptr && channelShimmer[(size_t) c]->load() > 0.5f;
-            crushOn[c] = channelCrush[(size_t) c] != nullptr && channelCrush[(size_t) c]->load() > 0.5f;
+            fuzzOn[c] = channelFuzz[(size_t) c]->load() > 0.5f;
+            shimmerOn[c] = channelShimmer[(size_t) c]->load() > 0.5f;
+            crushOn[c] = channelCrush[(size_t) c]->load() > 0.5f;
             anyShimmer = anyShimmer || shimmerOn[c];
         }
 
+        // Fuzz: driven hard into lopsided clipping, then a tone filter takes
+        // the fizz off, like a fuzz pedal's tone knob.
+        auto fuzz = [tone = fuzzToneCoeff] (float x, float& state) noexcept
+        {
+            const float fz = std::tanh (25.0f * x + 0.25f) - 0.2449187f;   // tanh (0.25)
+            state = fz + tone * (state - fz);
+            return 0.25f * state;
+        };
+        constexpr int dry = puppychow::dryChannel;
+        const bool dryFuzz = fuzzOn[dry], dryCrush = crushOn[dry], dryShimmer = shimmerOn[dry];
+
         for (int i = 0; i < n; ++i)
         {
+            // The dry guitar, with its own options. It keeps its left and right
+            // (if the input is stereo), so the options run on each side.
+            float dryInL = buffer.getReadPointer (0, start)[i];
+            float dryInR = numOut > 1 ? buffer.getReadPointer (1, start)[i] : dryInL;
+            if (dryFuzz)
+            {
+                dryInL = fuzz (dryInL, dryFuzzState[0]);
+                dryInR = fuzz (dryInR, dryFuzzState[1]);
+            }
+            if (dryCrush)
+            {
+                if (--dryCrushCount <= 0)
+                {
+                    dryCrushCount = crushHold;
+                    dryCrushHeld[0] = std::round (dryInL * 32.0f) / 32.0f;
+                    dryCrushHeld[1] = std::round (dryInR * 32.0f) / 32.0f;
+                }
+                dryInL = dryCrushHeld[0];
+                dryInR = dryCrushHeld[1];
+            }
+
             // Mix the voices into left and right. The octave-up voices blend in
             // their detuned copies.
             const float det = detuneMix.getNextValue();
@@ -398,14 +424,8 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 }
                 warmthState[(size_t) c] = x;
 
-                // Fuzz: driven hard into lopsided clipping, then a tone
-                // filter takes the fizz off, like a fuzz pedal's tone knob.
                 if (fuzzOn[c])
-                {
-                    const float fz = std::tanh (25.0f * x + 0.25f) - 0.2449187f;   // tanh (0.25)
-                    fuzzState[(size_t) c] = fz + fuzzToneCoeff * (fuzzState[(size_t) c] - fz);
-                    x = 0.25f * fuzzState[(size_t) c];
-                }
+                    x = fuzz (x, fuzzState[(size_t) c]);
 
                 // Crush: hold each value for several samples (lower sample
                 // rate) and round it to 6 bits.
@@ -445,20 +465,22 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             wetL *= swellGain;
             wetR *= swellGain;
 
+            if (swellTheDry)
+            {
+                dryL *= swellGain;
+                dryR *= swellGain;
+            }
+            const float dryOutL = dryInL * dryL, dryOutR = dryInR * dryR;
             // Shimmer: the reverb is fed after the swell and its tail rings on
             // past it.
             shimmerTail = anyShimmer ? shimmerTailLength : juce::jmax (0, shimmerTail - 1);
             if (shimmerTail > 0)   // keep running until the tail has died away
             {
                 float shL = 0.0f, shR = 0.0f;
-                shimmer.process (sendL * swellGain, sendR * swellGain, shL, shR);
+                shimmer.process (sendL * swellGain + (dryShimmer ? dryOutL : 0.0f),
+                                 sendR * swellGain + (dryShimmer ? dryOutR : 0.0f), shL, shR);
                 wetL += shL;
                 wetR += shR;
-            }
-            if (swellTheDry)
-            {
-                dryL *= swellGain;
-                dryR *= swellGain;
             }
 
             // One-pole high-pass: subtract a slow-moving average.
@@ -474,7 +496,7 @@ void PuppyChowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             {
                 float* dst = buffer.getWritePointer (ch, start);
                 const bool right = ch == 1;
-                const float y = softLimit ((dst[i] * (right ? dryR : dryL) + (right ? wetR : wetL)) * out);
+                const float y = softLimit (((right ? dryOutR : dryOutL) + (right ? wetR : wetL)) * out);
                 dst[i] = std::isfinite (y) ? y : 0.0f;   // never pass a bad value down the chain
             }
         }

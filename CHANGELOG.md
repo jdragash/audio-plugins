@@ -4,14 +4,16 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
-## 0.3.0 (unreleased)
+## 0.3.1 (unreleased)
 
-- Options under the faders, each with its own switch per channel:
-  - **Fuzz** on -2 Oct, -1 Oct and -4th: a real fuzz (hard, lopsided clipping with a tone
-    filter) on that voice.
-  - **Shimmer** on +5th, +1 Oct, +Oct 5th, +2 Oct and Overtones: sends the voice into a lush
-    stereo reverb with a long, bright tail that rings on after you stop.
-  - **Crush** on the same channels: lo-fi bit and sample-rate reduction (about 8 kHz, 6 bits).
+(0.3.0 was a test build only and was never released.)
+
+- Options under every channel's fader, each with its own switch, on all nine channels (Dry
+  included). Mix and match them freely; they run in this order:
+  - **Fuzz**: a real fuzz (hard, lopsided clipping with a tone filter) on that channel.
+  - **Crush**: lo-fi bit and sample-rate reduction (about 8 kHz, 6 bits).
+  - **Shimmer**: sends the channel into a lush stereo reverb with a long, bright tail that
+    rings on after you stop. All channels share one reverb.
 
 ## 0.2.1 (2026-11-20)
 

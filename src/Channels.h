@@ -39,10 +39,12 @@ namespace puppychow
     // the most "digital", so they get soft tape-style saturation and a darker top.
     inline constexpr bool isWarmable (int channel) { return channel > dryChannel; }
 
-    // Options under each channel's fader. Channels below the dry guitar can
-    // add Fuzz; channels above it can add Shimmer (a lush reverb tail) and
-    // Crush (lo-fi bit and sample-rate reduction).
-    inline constexpr bool hasFuzz (int channel) { return channel < dryChannel; }
-    inline constexpr bool hasShimmerAndCrush (int channel) { return channel > dryChannel; }
+    // Options under each channel's fader, on every channel (Dry too). They can
+    // be combined freely: Fuzz (driven clipping), Crush (lo-fi bit and
+    // sample-rate reduction) and Shimmer (a lush shared reverb tail). The
+    // parameter id is the channel id + "_" + the option id.
+    inline constexpr int numOptions = 3;
+    inline constexpr const char* optionIds[numOptions]   = { "fuzz", "crush", "shimmer" };
+    inline constexpr const char* optionNames[numOptions] = { "Fuzz", "Crush", "Shimmer" };
     inline constexpr float minOutputDb = -24.0f, maxOutputDb = 6.0f;
 }

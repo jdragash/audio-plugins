@@ -77,6 +77,8 @@ private:
     std::array<float, puppychow::numChannels> fuzzState {};
     std::array<float, puppychow::numChannels> crushHeld {};
     std::array<int, puppychow::numChannels> crushCount {};
+    std::array<float, 2> dryFuzzState {}, dryCrushHeld {};   // Dry keeps left and right apart
+    int dryCrushCount = 0;
     int crushHold = 6;
     float fuzzToneCoeff = 0.0f;
     puppychow::Shimmer shimmer;
