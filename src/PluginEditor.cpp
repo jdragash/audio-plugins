@@ -97,7 +97,7 @@ void PuppyChowEditor::handleUiEvent (const juce::var& event)
 
     const auto id = event["id"].toString();
 
-    if (type == "set" && id == darkModeId)   // a look setting, saved with the session but not automatable
+    if (type == "set" && id == darkModeId.toString())   // a look setting, saved with the session but not automatable
     {
         pluginProcessor.getParameters().state.setProperty (darkModeId, (double) event["v"] > 0.5, nullptr);
         return;
