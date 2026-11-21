@@ -1,6 +1,6 @@
 # Working on the plugins
 
-Notes for working on this repo. For downloads, see the [Releases](https://github.com/jdragash/audio-plugins/releases) page.
+Notes for working on this repo. For downloads, see the [Releases](https://github.com/jdragash/potluck-audio/releases) page.
 
 ## Layout
 
@@ -36,8 +36,8 @@ The first configure downloads JUCE, so it takes a minute. Each plugin ends up in
 - A release is a tag named after the plugin's folder and version, such as
   `puppy-chow-v0.5.0`. Pushing it builds that plugin and publishes it on the Releases page,
   after checking the tag matches the version in the plugin's `CMakeLists.txt`.
-- New work goes on a branch. Nothing is merged or tagged until Jake has played the build on
-  his Mac.
+- New work goes on a branch. Nothing is merged or tagged until I've played the build on
+  my Mac.
 
 ## Adding a plugin
 

@@ -5,7 +5,7 @@ It's meant to sit in front of your amp sim and add clean, chord-friendly octaves
 
 ## Status
 
-**Version 0.4.0.** Download it from the [Releases](https://github.com/jdragash/audio-plugins/releases)
+**Version 0.4.0.** Download it from the [Releases](https://github.com/jdragash/potluck-audio/releases)
 page. 0.4.0 brings the real, hand-drawn interface.
 
 ![The front of Puppy Chow: a stack of voices drawn as crayon washes](docs/interface.jpg)
@@ -64,7 +64,7 @@ attack time and CPU use.
 
 ## Building on a Mac
 
-Puppy Chow lives in the [audio-plugins](../../README.md) repo. You need Xcode (or the Xcode
+Puppy Chow lives in the [Potluck Audio](../../README.md) repo. You need Xcode (or the Xcode
 command line tools), CMake and Ninja (`brew install cmake ninja`). From the repo root:
 
 ```sh
@@ -92,15 +92,15 @@ the Actions tab. Those builds are not code-signed, so macOS may block them the f
 ## Versions and testing
 
 Each version is listed in [CHANGELOG.md](CHANGELOG.md), and the version number shows in the bottom
-right corner of the back of the plugin. Finished, tested versions are on the [Releases](https://github.com/jdragash/audio-plugins/releases)
+right corner of the back of the plugin. Finished, tested versions are on the [Releases](https://github.com/jdragash/potluck-audio/releases)
 page as a zip with the Audio Unit, VST3 and standalone app.
 
 How a change gets there:
 
 1. New work goes on its own branch, never straight to `main`. GitHub builds and checks every
    branch, but nothing on a branch is a release.
-2. That branch is built and installed on Jake's Mac so he can play it.
-3. Only once Jake says it's good: the branch is merged into `main`, the version number is
+2. That branch is built and installed on my Mac so I can play it.
+3. Only once I'm happy with it: the branch is merged into `main`, the version number is
    raised in `plugins/puppy-chow/CMakeLists.txt` and `CHANGELOG.md`, and a
    `puppy-chow-vX.Y.Z` tag is pushed. The tag builds the release automatically. (Versions up
    to 0.4.0 were tagged plain `vX.Y.Z`, before the repo held more than one plugin.)
