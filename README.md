@@ -1,6 +1,6 @@
 # Potluck Audio
 
-Audio plugins for the Mac, as Audio Units (plus VST3 and standalone apps), built with
+My audio plugins for the Mac, as Audio Units (plus VST3 and standalone apps), built with
 [JUCE](https://juce.com) and CMake.
 
 | Plugin | What it is | Latest |
