@@ -1,5 +1,8 @@
 name: Build and validate
 
+# Builds and checks only the plugins a change touches. A change to shared/,
+# cmake/, the root CMakeLists.txt or the workflows rebuilds every plugin.
+
 on:
   push:
     branches: [main]
@@ -7,51 +10,103 @@ on:
   workflow_dispatch:
 
 jobs:
-  macos:
-    runs-on: macos-latest
-    timeout-minutes: 60
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.pick.outputs.plugins }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pick the plugins to build
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          all=$(ls -d plugins/*/ | xargs -n1 basename)
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            picked="$all"
+          else
+            changed=$(git diff --name-only "$BASE" "$HEAD")
+            echo "Changed files:"; echo "$changed"
+            if echo "$changed" | grep -qE '^(shared/|cmake/|CMakeLists\.txt$|\.github/workflows/)'; then
+              picked="$all"
+            else
+              picked=$(echo "$changed" | sed -n 's|^plugins/\([^/]*\)/.*|\1|p' | sort -u)
+            fi
+          fi
+          # Only folders that are still plugins (a deleted plugin has nothing to build).
+          picked=$(for p in $picked; do [ -f "plugins/$p/CMakeLists.txt" ] && echo "$p"; done)
+          json=$(printf '%s\n' $picked | jq -R . | jq -sc 'map(select(length > 0))')
+          echo "Plugins to build: $json"
+          echo "plugins=$json" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: changes
+    if: needs.changes.outputs.plugins != '[]'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJSON(needs.changes.outputs.plugins) }}
+    name: ${{ matrix.plugin }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the plugin's details
+        run: |
+          meta=plugins/${{ matrix.plugin }}/plugin.json
+          {
+            echo "PLUGIN_NAME=$(jq -r .name $meta)"
+            echo "PLUGIN_ZIP=$(jq -r .zip $meta)"
+            echo "PLUGIN_AU=$(jq -r .au $meta)"
+            echo "OUT=build/plugins/${{ matrix.plugin }}/$(jq -r .target $meta)_artefacts/Release"
+          } >> "$GITHUB_ENV"
 
       - name: Cache JUCE download
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: juce-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          key: juce-${{ runner.os }}-${{ hashFiles('cmake/JUCE.cmake') }}
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPLUGINS=${{ matrix.plugin }}
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Engine tests (pitch, chords, attack time, CPU)
+      - name: Tests
         run: ctest --test-dir build --output-on-failure
 
       - name: Install AU and VST3 for validation
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3
-          cp -R "build/PuppyChow_artefacts/Release/AU/Puppy Chow.component" ~/Library/Audio/Plug-Ins/Components/
-          cp -R "build/PuppyChow_artefacts/Release/VST3/Puppy Chow.vst3" ~/Library/Audio/Plug-Ins/VST3/
+          cp -R "$OUT/AU/$PLUGIN_NAME.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "$OUT/VST3/$PLUGIN_NAME.vst3" ~/Library/Audio/Plug-Ins/VST3/
           killall -9 AudioComponentRegistrar || true
 
       - name: auval
-        run: auval -strict -v aufx Pchw Jdrg
+        run: auval -strict -v $PLUGIN_AU
 
       - name: pluginval
         run: |
           curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
           unzip -q pluginval.zip
           ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --skip-gui-tests \
-            --validate ~/Library/Audio/Plug-Ins/VST3/"Puppy Chow.vst3"
+            --validate ~/Library/Audio/Plug-Ins/VST3/"$PLUGIN_NAME.vst3"
           ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --skip-gui-tests \
-            --validate ~/Library/Audio/Plug-Ins/Components/"Puppy Chow.component"
+            --validate ~/Library/Audio/Plug-Ins/Components/"$PLUGIN_NAME.component"
 
       - name: Upload plugins
         uses: actions/upload-artifact@v4
         with:
-          name: PuppyChow-macOS
+          name: ${{ env.PLUGIN_ZIP }}-macOS
           path: |
-            build/PuppyChow_artefacts/Release/AU/Puppy Chow.component
-            build/PuppyChow_artefacts/Release/VST3/Puppy Chow.vst3
-            build/PuppyChow_artefacts/Release/Standalone/Puppy Chow.app
+            ${{ env.OUT }}/AU/${{ env.PLUGIN_NAME }}.component
+            ${{ env.OUT }}/VST3/${{ env.PLUGIN_NAME }}.vst3
+            ${{ env.OUT }}/Standalone/${{ env.PLUGIN_NAME }}.app

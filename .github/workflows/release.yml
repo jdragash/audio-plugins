@@ -1,12 +1,13 @@
 name: Release
 
-# Runs when a version tag such as v0.1.0 is pushed. Builds the plugin, checks it
-# the same way as every other build, and publishes the files on the repo's
-# Releases page. Tags are only pushed after Jake has tested that build.
+# Runs when a plugin's version tag is pushed, such as puppy-chow-v0.5.0
+# (plugin folder name, then -v and the version). Builds that plugin, checks it
+# the same way as every other build, and publishes it on the Releases page.
+# Tags are only pushed after Jake has tested that build.
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["*-v*"]
 
 permissions:
   contents: write
@@ -18,47 +19,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the tag matches the version in CMakeLists.txt
+      - name: Work out the plugin and version from the tag
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          version=$(sed -n 's/^project(PuppyChow VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
-          echo "tag $tag, CMake version $version"
-          test "$tag" = "$version"
+          tag="$GITHUB_REF_NAME"
+          plugin="${tag%-v*}"
+          version="${tag##*-v}"
+          meta="plugins/$plugin/plugin.json"
+          test -f "$meta" || { echo "No plugin folder plugins/$plugin for tag $tag"; exit 1; }
+          cmake_version=$(sed -n 's/^project([A-Za-z0-9_]* VERSION \([0-9.]*\).*/\1/p' "plugins/$plugin/CMakeLists.txt")
+          echo "tag $tag: plugin $plugin, version $version, CMake version $cmake_version"
+          test "$version" = "$cmake_version"
+          {
+            echo "PLUGIN=$plugin"
+            echo "VERSION=$version"
+            echo "PLUGIN_NAME=$(jq -r .name $meta)"
+            echo "PLUGIN_ZIP=$(jq -r .zip $meta)"
+            echo "PLUGIN_AU=$(jq -r .au $meta)"
+            echo "OUT=build/plugins/$plugin/$(jq -r .target $meta)_artefacts/Release"
+          } >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPLUGINS="$PLUGIN"
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Engine tests
+      - name: Tests
         run: ctest --test-dir build --output-on-failure
 
       - name: auval
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R "build/PuppyChow_artefacts/Release/AU/Puppy Chow.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "$OUT/AU/$PLUGIN_NAME.component" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
-          auval -strict -v aufx Pchw Jdrg
+          auval -strict -v $PLUGIN_AU
 
       - name: Package
         run: |
-          out="PuppyChow-${GITHUB_REF_NAME}-macOS"
+          out="$PLUGIN_ZIP-v$VERSION-macOS"
           mkdir -p "dist/$out"
-          cp -R "build/PuppyChow_artefacts/Release/AU/Puppy Chow.component" "dist/$out/"
-          cp -R "build/PuppyChow_artefacts/Release/VST3/Puppy Chow.vst3" "dist/$out/"
-          cp -R "build/PuppyChow_artefacts/Release/Standalone/Puppy Chow.app" "dist/$out/"
-          cp CHANGELOG.md "dist/$out/"
+          cp -R "$OUT/AU/$PLUGIN_NAME.component" "dist/$out/"
+          cp -R "$OUT/VST3/$PLUGIN_NAME.vst3" "dist/$out/"
+          cp -R "$OUT/Standalone/$PLUGIN_NAME.app" "dist/$out/"
+          cp "plugins/$PLUGIN/CHANGELOG.md" "dist/$out/"
           (cd dist && ditto -c -k --keepParent "$out" "$out.zip")
+          echo "ZIP=dist/$out.zip" >> "$GITHUB_ENV"
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          # Release notes: this version's section of the changelog.
-          awk -v v="$version" '$0 ~ "^## " v" " {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          # Release notes: this version's section of the plugin's changelog.
+          awk -v v="$VERSION" '$0 ~ "^## " v" " {on=1; next} /^## / {on=0} on' "plugins/$PLUGIN/CHANGELOG.md" > notes.md
           prerelease=""
-          case "$version" in 0.*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" "dist/PuppyChow-${GITHUB_REF_NAME}-macOS.zip" \
-            --title "Puppy Chow $version" --notes-file notes.md $prerelease
+          case "$VERSION" in 0.*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" "$ZIP" \
+            --title "$PLUGIN_NAME $VERSION" --notes-file notes.md $prerelease
