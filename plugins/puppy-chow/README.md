@@ -99,8 +99,8 @@ How a change gets there:
 
 1. New work goes on its own branch, never straight to `main`. GitHub builds and checks every
    branch, but nothing on a branch is a release.
-2. That branch is built and installed on Jake's Mac so he can play it.
-3. Only once Jake says it's good: the branch is merged into `main`, the version number is
+2. That branch is built and installed on my Mac so I can play it.
+3. Only once I'm happy with it: the branch is merged into `main`, the version number is
    raised in `plugins/puppy-chow/CMakeLists.txt` and `CHANGELOG.md`, and a
    `puppy-chow-vX.Y.Z` tag is pushed. The tag builds the release automatically. (Versions up
    to 0.4.0 were tagged plain `vX.Y.Z`, before the repo held more than one plugin.)

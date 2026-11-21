@@ -1,6 +1,6 @@
 # Drawn-paper UI kit
 
-The look shared by Jake's plugins, after Tilly: paper with grain, colour washes with rough
+The look shared by the Potluck Audio plugins, after Tilly: paper with grain, colour washes with rough
 edges, SF Pro Rounded type, an 8 fps "boil", a front and a back that flip.
 
 For now the only copy lives inside Puppy Chow's page, `plugins/puppy-chow/src/ui/index.html`
