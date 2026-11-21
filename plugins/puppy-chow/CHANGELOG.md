@@ -4,6 +4,12 @@ Versions follow `MAJOR.MINOR.PATCH`. Until 1.0, a new MINOR version means new fe
 sound changes, and a PATCH version means fixes only. Settings saved in a session may change
 between 0.x versions.
 
+## Unreleased
+
+- Moved into the audio-plugins repo (`plugins/puppy-chow/`). No change to the sound,
+  the interface, the plugin codes or saved settings. Releases are now tagged
+  `puppy-chow-vX.Y.Z`.
+
 ## 0.4.0 (2026-11-21)
 
 - New drawn interface ("Puppy Chow, Drawn"): one stack of voices, highest on top. A crayon

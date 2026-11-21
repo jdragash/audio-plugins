@@ -1,7 +1,7 @@
 #pragma once
 
-// Puppy Chow shimmer: a small, lush stereo reverb that channels can send to
-// (the Shimmer option under a channel's fader). Four delay lines feed back
+// Shimmer: a small, lush stereo reverb to send voices to (Puppy Chow's
+// Shimmer sticker). Four delay lines feed back
 // into each other through a Householder mix, with a gentle darkening filter
 // in the loop, after two all-pass diffusers that smear the attack. The tail
 // lasts about two and a half seconds. Plain C++, real-time safe after
@@ -10,7 +10,7 @@
 #include <cmath>
 #include <vector>
 
-namespace puppychow
+namespace shared
 {
 class Shimmer
 {
@@ -99,4 +99,4 @@ private:
     int diffPos[2][2] {};
     float dampCoeff = 0.0f, lowCutCoeff = 0.0f, lowCut[2] {};
 };
-} // namespace puppychow
+} // namespace shared

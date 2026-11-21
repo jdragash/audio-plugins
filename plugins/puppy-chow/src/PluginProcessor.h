@@ -4,7 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "Channels.h"
-#include "dsp/Shimmer.h"
+#include "shared/dsp/Shimmer.h"
 #include "dsp/OctaveEngine.h"
 
 // Puppy Chow: a polyphonic octave pedal.
@@ -86,7 +86,7 @@ private:
     int dryCrushCount = 0;
     int crushHold = 6;
     float fuzzToneCoeff = 0.0f;
-    puppychow::Shimmer shimmer;
+    shared::Shimmer shimmer;
     int shimmerTail = 0, shimmerTailLength = 0;   // samples left before the reverb can stop running
 
     // One engine per tracking mode, so switching never rebuilds anything on
