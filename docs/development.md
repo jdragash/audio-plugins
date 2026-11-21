@@ -37,7 +37,7 @@ The first configure downloads JUCE, so it takes a minute. Each plugin ends up in
   `puppy-chow-v0.5.0`. Pushing it builds that plugin and publishes it on the Releases page,
   after checking the tag matches the version in the plugin's `CMakeLists.txt`.
 - New work goes on a branch. Nothing is merged or tagged until I've played the build on
-  his Mac.
+  my Mac.
 
 ## Adding a plugin
 
