@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Jake's audio plugins. Each plugin lives in plugins/<name>/ with its own
+# Potluck Audio's plugins. Each plugin lives in plugins/<name>/ with its own
 # version, changelog and tests. Code shared between plugins lives in shared/.
 #
 #   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # every plugin
 #   cmake -S . -B build -G Ninja -DPLUGINS=puppy-chow         # just one (or a ;-list)
-project(AudioPlugins LANGUAGES C CXX)
+project(PotluckAudio LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

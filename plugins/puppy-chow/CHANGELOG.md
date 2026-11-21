@@ -6,7 +6,7 @@ between 0.x versions.
 
 ## Unreleased
 
-- Moved into the audio-plugins repo (`plugins/puppy-chow/`). No change to the sound,
+- Moved into the Potluck Audio repo (`plugins/puppy-chow/`). No change to the sound,
   the interface, the plugin codes or saved settings. Releases are now tagged
   `puppy-chow-vX.Y.Z`.
 

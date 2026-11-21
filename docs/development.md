@@ -1,6 +1,6 @@
 # Working on the plugins
 
-Notes for working on this repo. For downloads, see the [Releases](https://github.com/jdragash/audio-plugins/releases) page.
+Notes for working on this repo. For downloads, see the [Releases](https://github.com/jdragash/potluck-audio/releases) page.
 
 ## Layout
 
